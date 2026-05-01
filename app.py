@@ -386,16 +386,19 @@ def health():
 @app.route("/debug")
 def debug_page():
     """查看调试日志和状态"""
-    lines = ["=== 调试信息 ===", ""]
-    lines.append(f"FEISHU_APP_ID: {'已设置' if FEISHU_APP_ID else '❌ 未设置'}")
-    lines.append(f"FEISHU_APP_SECRET: {'已设置' if FEISHU_APP_SECRET else '❌ 未设置'}")
-    lines.append(f"DEEPSEEK_API_KEY: {'已设置' if DEEPSEEK_API_KEY else '❌ 未设置'}")
-    lines.append(f"已处理事件数: {len(processed_events)}")
-    lines.append("")
-    lines.append("--- 最近日志 ---")
-    for log in _debug_logs[-20:]:
-        lines.append(log)
-    return "\n".join(lines), 200, {"Content-Type": "text/plain; charset=utf-8"}
+    try:
+        lines = ["=== Debug Info ===", ""]
+        lines.append("FEISHU_APP_ID: " + ("SET" if FEISHU_APP_ID else "NOT SET"))
+        lines.append("FEISHU_APP_SECRET: " + ("SET" if FEISHU_APP_SECRET else "NOT SET"))
+        lines.append("DEEPSEEK_API_KEY: " + ("SET" if DEEPSEEK_API_KEY else "NOT SET"))
+        lines.append("Events processed: " + str(len(processed_events)))
+        lines.append("")
+        lines.append("--- Recent Logs ---")
+        for log in _debug_logs[-20:]:
+            lines.append(log)
+        return app.response_class("\n".join(lines), content_type="text/plain")
+    except Exception as e:
+        return f"Debug Error: {str(e)}"
 
 
 @app.route("/webhook", methods=["POST"])
