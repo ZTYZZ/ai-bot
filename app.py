@@ -532,6 +532,18 @@ def debug_page():
         lines.append("DEEPSEEK_API_KEY: " + ("SET" if DEEPSEEK_API_KEY else "NOT SET"))
         lines.append("Events processed: " + str(len(processed_events)))
         lines.append("")
+        master = memory.get_user_by_role("主人")
+        lines.append("--- Current Master ---")
+        if master:
+            lines.append("Name: " + (master["name"] or "未命名"))
+            lines.append("OpenID: " + master["open_id"])
+        else:
+            lines.append("No master registered")
+        lines.append("")
+        lines.append("--- All Users ---")
+        for u in memory.list_users():
+            lines.append(f"  {u['name'] or '?'} ({u['role'] or 'no role'}) open_id={u['open_id'][:16]}...")
+        lines.append("")
         lines.append("--- Recent Logs ---")
         for log in _debug_logs[-20:]:
             lines.append(log)
