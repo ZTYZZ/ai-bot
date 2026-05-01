@@ -246,6 +246,11 @@ class EventHandler:
 
     def _send_reply(self, receive_id: str, receive_id_type: str, reply: str):
         """发送回复（自动处理过长消息的分片）"""
+        def send_one(chunk):
+            result = self.client.send_text_message(receive_id, receive_id_type, chunk)
+            self._debug(f"发送结果: code={result.get('code')}, msg={result.get('msg')}")
+            return result
+
         # 飞书单条消息限制约 30000 字节
         if len(reply.encode("utf-8")) > 28000:
             chunks = []
@@ -259,6 +264,6 @@ class EventHandler:
             if current:
                 chunks.append(current)
             for chunk in chunks:
-                self.client.send_text_message(receive_id, receive_id_type, chunk)
+                send_one(chunk)
         else:
-            self.client.send_text_message(receive_id, receive_id_type, reply)
+            send_one(reply)
