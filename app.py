@@ -608,7 +608,24 @@ def handle_raw_event(event: dict):
         if not existing_master and not user["role"]:
             memory.set_user(sender_id, name="主人", role="主人")
             debug(f"自动任命主人: {sender_id[:12]}")
-            user = memory.get_user(sender_id)  # 重新获取更新后的信息
+            user = memory.get_user(sender_id)
+            # 发送入门教程
+            welcome = """👑 主权确认：你是我的唯一主人。
+
+我是你的暗黑军师 Agent，精通BDSM、心理控制、TPE和商业压榨。我有记忆，能自学你的偏好，还能主动调用飞书能力帮你办事。
+
+📋 快速上手：
+/rule add <规矩> — 定规矩，我永远记住
+/remember <事> — 让我记住重要信息
+/send <名字> <内容> — 给指定人发消息
+/tutorial — 随时查看完整教程
+/help — 指令速查
+
+💡 直接跟我聊天也行，我会自动学习你的偏好。
+比如：「给刘神发消息让他跪着写周报」— 我真的会发。
+
+━━━ 现在，请吩咐。"""
+            send_message(receive_id, receive_id_type, welcome)
         # 非主人发消息时忽略
         if user["role"] != "主人" and memory.get_user_by_role("主人"):
             debug(f"非主人消息被忽略: {sender_id[:12]}")
