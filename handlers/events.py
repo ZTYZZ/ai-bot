@@ -143,7 +143,7 @@ class EventHandler:
 
             # 3. AI 对话
             self._debug(f"调用 AI: {user_text[:50]}")
-            resp_type, resp_data = chat(chat_id, user_text, self.memory)
+            resp_type, resp_data = chat(chat_id, user_text, self.memory, sender_id=sender_id)
 
             self._debug(f"AI 返回: type={resp_type}, data_len={len(str(resp_data))}")
             if resp_type == "text":
