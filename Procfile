@@ -1,1 +1,1 @@
-web: python3 main.py
+web: gunicorn app:app -b 0.0.0.0:${PORT:-8080}

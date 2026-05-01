@@ -261,9 +261,9 @@ def on_message(event: P2ImMessageReceiveV1):
 
 
 # Flask 健康检查（Render 等平台需要监听端口）
-health_app = Flask(__name__)
+app = Flask(__name__)
 
-@health_app.route("/")
+@app.route("/")
 def health():
     return "AI Master Bot is running."
 
@@ -288,23 +288,17 @@ def start_ws_client():
     client.start()
 
 
-def main():
-    print("=" * 50)
-    print("  🤖 AI 助手启动中...")
-    print("=" * 50)
-
-    # 启动长连接客户端（后台线程）
-    ws_thread = threading.Thread(target=start_ws_client, daemon=True)
-    ws_thread.start()
-
-    # Flask 监听端口（供云平台健康检查）
-    port = int(os.getenv("PORT", 8080))
-    logger.info(f"健康检查端口: {port}")
-    health_app.run(host="0.0.0.0", port=port, debug=False)
-
+# 启动飞书长连接（模块加载时自动启动）
+ws_thread = threading.Thread(target=start_ws_client, daemon=True)
+ws_thread.start()
 
 # 为了兼容旧配置
 FEISHU_ENCRYPT_KEY = ""
 
 if __name__ == "__main__":
-    main()
+    print("=" * 50)
+    print("  🤖 AI 助手启动中...")
+    print("=" * 50)
+    port = int(os.getenv("PORT", 8080))
+    logger.info(f"健康检查端口: {port}")
+    app.run(host="0.0.0.0", port=port, debug=False)
