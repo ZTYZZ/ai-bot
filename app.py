@@ -13,7 +13,7 @@ from config import (
     DEEPSEEK_API_KEY,
 )
 from memory import Memory
-from ai_client import chat, extract_entities, chat_with_tool_results
+from ai_client import chat, extract_entities
 
 from lark_oapi.ws import Client as WSClient
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
@@ -469,7 +469,11 @@ def on_message(event: P2ImMessageReceiveV1):
 
         # 调用 AI
         try:
-            reply = chat(chat_id, user_text, memory)
+            resp_type, resp_data = chat(chat_id, user_text, memory, tool_executor=tool_executor)
+            if resp_type == "text":
+                reply = resp_data
+            else:
+                reply = "主人，工具调用已完成。"
             key, value = extract_entities(user_text)
             if key and value:
                 memory.remember(chat_id, key, value)
@@ -543,11 +547,8 @@ def webhook():
     return jsonify({"code": 0})
 
 
-def execute_tool_call(tool_call: dict) -> str:
+def tool_executor(func_name: str, func_args: dict) -> str:
     """执行 Agent 工具调用，返回结果文本"""
-    func_name = tool_call["function"]["name"]
-    func_args = json.loads(tool_call["function"]["arguments"])
-
     if func_name == "send_message_to_user":
         target_name = func_args.get("user_name", "")
         msg_content = func_args.get("content", "")
@@ -657,36 +658,14 @@ def handle_raw_event(event: dict):
 
         try:
             debug(f"调用 AI: {user_text[:50]}")
-            reply = chat(chat_id, user_text, memory)
-            debug(f"AI 回复: {reply[:200]}")
+            resp_type, resp_data = chat(chat_id, user_text, memory, tool_executor=tool_executor)
+            debug(f"AI 回复类型: {resp_type}")
 
-            # 检测 TOOL_CALLS 标记
-            if "<!--TOOL_CALLS:" in reply:
-                # 提取 tool calls
-                tc_start = reply.index("<!--TOOL_CALLS:")
-                tc_end = reply.index("-->", tc_start) + 3
-                tc_json = reply[tc_start + 15:tc_end - 3]
-                tool_calls = json.loads(tc_json)
-
-                # 先发送 AI 的非工具部分
-                text_part = reply[:tc_start].strip()
-                if not text_part:
-                    text_part = reply[tc_end:].strip()
-
-                # 执行工具
-                tool_results = []
-                for tc in tool_calls:
-                    debug(f"执行工具: {tc['function']['name']}")
-                    result = execute_tool_call(tc)
-                    debug(f"工具结果: {result[:100]}")
-                    tool_results.append({"id": tc["id"], "result": result})
-
-                # 将工具结果发回 AI 获取最终回复
-                final_reply = chat_with_tool_results(chat_id, user_text, tool_results, memory)
-                debug(f"AI 最终回复: {final_reply[:200]}")
-                send_message(receive_id, receive_id_type, final_reply)
-            else:
-                send_message(receive_id, receive_id_type, reply)
+            if resp_type == "text":
+                send_message(receive_id, receive_id_type, resp_data)
+            elif resp_type == "tool_calls":
+                # AI 请求工具调用但没有执行器（理论上不会到这儿）
+                debug(f"未处理的工具调用: {resp_data}")
 
             # 自动提取记忆
             key, value = extract_entities(user_text)

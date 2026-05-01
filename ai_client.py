@@ -125,77 +125,72 @@ def build_messages(chat_id: str, user_text: str, memory: Memory) -> list:
     return messages
 
 
-def chat(chat_id: str, user_text: str, memory: Memory) -> str:
-    """发送消息给 DeepSeek 并返回回复（支持 function calling）"""
+def chat(chat_id: str, user_text: str, memory: Memory, tool_executor=None) -> tuple:
+    """
+    发送消息给 DeepSeek 并返回回复。
+    支持 function calling 循环：AI 调用工具 → 执行 → 返回结果 → AI 最终回复。
+
+    tool_executor: 可选函数，签名为 (tool_name, tool_args) -> str，用于执行工具。
+    如果为 None 且 AI 请求工具调用，返回 ("tool_calls", tool_calls_list)。
+
+    返回: (type, data)
+      - ("text", reply_string) 普通回复
+      - ("tool_calls", [{"id":..., "function":..., "arguments":...}]) 需要执行工具
+    """
     messages = build_messages(chat_id, user_text, memory)
 
-    response = client.chat.completions.create(
-        model=DEEPSEEK_MODEL,
-        messages=messages,
-        temperature=0.7,
-        max_tokens=2000,
-        tools=TOOLS,
-        tool_choice="auto",
-    )
+    # 最多循环 3 轮工具调用
+    for _ in range(3):
+        response = client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=2000,
+            tools=TOOLS,
+            tool_choice="auto",
+        )
 
-    choice = response.choices[0]
-    msg = choice.message
+        msg = response.choices[0].message
 
-    # 保存用户消息
-    memory.save_message(chat_id, "user", user_text)
+        # 无工具调用 → 正常回复
+        if not msg.tool_calls:
+            reply = msg.content or ""
+            memory.save_message(chat_id, "user", user_text)
+            memory.save_message(chat_id, "assistant", reply)
+            return ("text", reply)
 
-    # 处理 function call
-    if msg.tool_calls:
-        tool_calls_info = []
+        # 有工具调用
+        if tool_executor is None:
+            # 无执行器，返回工具调用让外层处理
+            tc_list = [
+                {
+                    "id": tc.id,
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]
+            memory.save_message(chat_id, "user", user_text)
+            return ("tool_calls", tc_list)
+
+        # 有执行器 → 执行工具并继续
+        # 将 AI 的 tool_calls 响应加入消息
+        messages.append(msg.model_dump())
+
         for tc in msg.tool_calls:
             func_name = tc.function.name
             func_args = json.loads(tc.function.arguments)
-            tool_calls_info.append(
-                {"id": tc.id, "function": {"name": func_name, "arguments": tc.function.arguments}}
-            )
+            result = tool_executor(func_name, func_args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": str(result),
+            })
 
-        # 将 AI 的 tool_call 请求加入消息历史
-        memory.save_message(chat_id, "assistant", json.dumps(
-            {"type": "tool_calls", "calls": [
-                {"name": t["function"]["name"], "args": t["function"]["arguments"]}
-                for t in tool_calls_info
-            ]}, ensure_ascii=False
-        ))
-
-        # 返回特殊标记，让外层执行工具
-        reply_text = msg.content or ""
-        if tool_calls_info:
-            reply_text += "\n<!--TOOL_CALLS:" + json.dumps(tool_calls_info, ensure_ascii=False) + "-->"
-        return reply_text
-
-    # 普通回复
-    reply = msg.content or ""
+    # 超过最大循环次数
+    reply = "主人抱歉，处理您的请求时遇到了问题。"
+    memory.save_message(chat_id, "user", user_text)
     memory.save_message(chat_id, "assistant", reply)
-    return reply
-
-
-def chat_with_tool_results(chat_id: str, user_text: str, tool_results: list, memory: Memory) -> str:
-    """将工具执行结果返回给 AI 并获取最终回复"""
-    messages = build_messages(chat_id, user_text, memory)
-
-    # 添加 tool results
-    for tr in tool_results:
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tr["id"],
-            "content": tr["result"],
-        })
-
-    response = client.chat.completions.create(
-        model=DEEPSEEK_MODEL,
-        messages=messages,
-        temperature=0.7,
-        max_tokens=2000,
-    )
-
-    reply = response.choices[0].message.content or ""
-    memory.save_message(chat_id, "assistant", reply)
-    return reply
+    return ("text", reply)
 
 
 def extract_entities(user_text: str):
