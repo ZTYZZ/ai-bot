@@ -8,6 +8,8 @@ from sqlalchemy import (
     String,
     Text,
     DateTime,
+    JSON,
+    func,
     UniqueConstraint,
 )
 from sqlalchemy.orm import sessionmaker, scoped_session, declarative_base
@@ -58,6 +60,45 @@ class LongTermMemory(Base):
     value = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     __table_args__ = (UniqueConstraint("chat_id", "key"),)
+
+
+class AssetProfile(Base):
+    """资产驯化档案 — 每个被驯化资产一行"""
+    __tablename__ = "asset_profiles"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    open_id = Column(String, unique=True, nullable=False, index=True)
+
+    # 核心评分维度 (0-100)
+    obedience = Column(Integer, default=50)     # 服从度
+    attitude = Column(Integer, default=50)      # 态度
+    diligence = Column(Integer, default=50)     # 勤勉度
+    creativity = Column(Integer, default=50)    # 创造力
+    endurance = Column(Integer, default=50)     # 忍耐力
+
+    # 统计数据
+    tasks_assigned = Column(Integer, default=0)
+    tasks_completed = Column(Integer, default=0)
+    tasks_failed = Column(Integer, default=0)
+    punishments = Column(Integer, default=0)
+    rewards = Column(Integer, default=0)
+
+    # 驯化方向
+    training_focus = Column(Text, default="")
+    master_notes = Column(Text, default="")
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+
+class AssetLog(Base):
+    """资产行为档案 — 每次奖惩/评估/任务结果一条记录"""
+    __tablename__ = "asset_logs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    open_id = Column(String, nullable=False, index=True)
+    event_type = Column(String, nullable=False)  # evaluation/punishment/reward/task_complete/task_fail/attitude/note
+    description = Column(Text, default="")
+    score_changes = Column(JSON, default=dict)   # {"obedience": +5, "attitude": -3}
+    created_at = Column(DateTime, server_default=func.now())
 
 
 # ============================================================
@@ -342,6 +383,121 @@ class Memory:
         finally:
             session.close()
 
+    # ========== Asset Profile ==========
+
+    def get_or_create_asset_profile(self, open_id: str) -> dict:
+        session = self.Session()
+        try:
+            profile = session.query(AssetProfile).filter(AssetProfile.open_id == open_id).first()
+            if profile:
+                return self._profile_to_dict(profile)
+            new_p = AssetProfile(open_id=open_id)
+            session.add(new_p)
+            session.commit()
+            return self._profile_to_dict(new_p)
+        finally:
+            session.close()
+
+    def get_asset_profile(self, open_id: str) -> dict:
+        session = self.Session()
+        try:
+            profile = session.query(AssetProfile).filter(AssetProfile.open_id == open_id).first()
+            return self._profile_to_dict(profile) if profile else {}
+        finally:
+            session.close()
+
+    def update_asset_profile(self, open_id: str, **kwargs):
+        session = self.Session()
+        try:
+            profile = session.query(AssetProfile).filter(AssetProfile.open_id == open_id).first()
+            if profile:
+                for key, value in kwargs.items():
+                    if hasattr(profile, key):
+                        setattr(profile, key, value)
+                profile.updated_at = datetime.utcnow()
+                session.commit()
+            else:
+                kwargs["open_id"] = open_id
+                session.add(AssetProfile(**kwargs))
+                session.commit()
+        finally:
+            session.close()
+
+    def list_asset_profiles(self) -> list:
+        session = self.Session()
+        try:
+            profiles = session.query(AssetProfile).order_by(AssetProfile.open_id).all()
+            return [self._profile_to_dict(p) for p in profiles]
+        finally:
+            session.close()
+
+    def add_asset_log(self, open_id: str, event_type: str, description: str = "",
+                      score_changes: dict = None) -> int:
+        session = self.Session()
+        try:
+            log = AssetLog(
+                open_id=open_id,
+                event_type=event_type,
+                description=description,
+                score_changes=score_changes or {},
+            )
+            session.add(log)
+            session.commit()
+            return log.id
+        finally:
+            session.close()
+
+    def get_asset_logs(self, open_id: str, limit: int = 20) -> list:
+        session = self.Session()
+        try:
+            logs = (
+                session.query(AssetLog)
+                .filter(AssetLog.open_id == open_id)
+                .order_by(AssetLog.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "id": l.id,
+                    "event_type": l.event_type,
+                    "description": l.description,
+                    "score_changes": l.score_changes or {},
+                    "created_at": l.created_at.strftime("%Y-%m-%d %H:%M") if l.created_at else "",
+                }
+                for l in logs
+            ]
+        finally:
+            session.close()
+
+    def get_asset_full_report(self, open_id: str) -> dict:
+        """返回资产的完整档案：基本分 + 最近日志 + 统计摘要"""
+        profile = self.get_asset_profile(open_id)
+        logs = self.get_asset_logs(open_id, limit=15)
+        profile["recent_logs"] = logs
+        profile["completion_rate"] = (
+            round(profile.get("tasks_completed", 0) / max(profile.get("tasks_assigned", 1), 1) * 100)
+        )
+        return profile
+
+    @staticmethod
+    def _profile_to_dict(p) -> dict:
+        return {
+            "open_id": p.open_id,
+            "obedience": p.obedience,
+            "attitude": p.attitude,
+            "diligence": p.diligence,
+            "creativity": p.creativity,
+            "endurance": p.endurance,
+            "tasks_assigned": p.tasks_assigned,
+            "tasks_completed": p.tasks_completed,
+            "tasks_failed": p.tasks_failed,
+            "punishments": p.punishments,
+            "rewards": p.rewards,
+            "training_focus": p.training_focus or "",
+            "master_notes": p.master_notes or "",
+        }
+
     # ========== Bulk Operations ==========
 
     def reset_all(self):
@@ -352,6 +508,8 @@ class Memory:
             session.query(Rule).delete()
             session.query(User).delete()
             session.query(LongTermMemory).delete()
+            session.query(AssetProfile).delete()
+            session.query(AssetLog).delete()
             session.commit()
         finally:
             session.close()
