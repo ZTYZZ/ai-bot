@@ -4,7 +4,7 @@ import requests
 import threading
 import time
 import logging
-from flask import Flask
+from flask import Flask, request, jsonify
 
 from config import (
     FEISHU_APP_ID,
@@ -369,6 +369,100 @@ def health():
     return "AI Master Bot is running."
 
 
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    """飞书 Webhook 接收端点"""
+    body = request.get_json()
+
+    # URL 验证
+    if "challenge" in body:
+        return jsonify({"challenge": body["challenge"]})
+
+    # 事件处理
+    event_type = body.get("header", {}).get("event_type", "")
+    if event_type == "im.message.receive_v1":
+        event = body.get("event", {})
+        threading.Thread(target=handle_raw_event, args=(event,), daemon=True).start()
+
+    return jsonify({"code": 0})
+
+
+def handle_raw_event(event: dict):
+    """处理 Webhook 推送的原始事件"""
+    message = event.get("message", {})
+    sender = event.get("sender", {})
+
+    if not message:
+        return
+
+    event_id = message.get("message_id", "")
+    if event_id in processed_events:
+        return
+    processed_events.add(event_id)
+
+    if message.get("message_type") != "text":
+        return
+
+    chat_id = message.get("chat_id", "")
+    chat_type = message.get("chat_type")
+
+    if chat_type == "p2p":
+        receive_id = sender.get("sender_id", {}).get("open_id", "")
+        receive_id_type = "open_id"
+    else:
+        receive_id = chat_id
+        receive_id_type = "chat_id"
+
+    if not receive_id:
+        return
+
+    try:
+        content = json.loads(message.get("content", "{}"))
+        user_text = content.get("text", "")
+    except (json.JSONDecodeError, TypeError):
+        return
+
+    # 去 @
+    if "@" in user_text:
+        import re
+        user_text = re.sub(r'@_user_\d+\s*', '', user_text).strip()
+
+    if not user_text:
+        return
+
+    logger.info(f"[Webhook] chat={chat_id} text={user_text[:100]}")
+
+    def process():
+        if handle_command(chat_id, user_text, receive_id, receive_id_type):
+            return
+        try:
+            reply = chat(chat_id, user_text, memory)
+            key, value = extract_entities(user_text)
+            if key and value:
+                memory.remember(chat_id, key, value)
+        except Exception as e:
+            reply = f"主人抱歉，我出错了：{str(e)}"
+            logger.error(f"AI 调用失败: {e}")
+
+        if len(reply.encode("utf-8")) > 28000:
+            chunks = []
+            current = ""
+            for line in reply.split("\n"):
+                if len((current + line).encode("utf-8")) > 28000:
+                    chunks.append(current)
+                    current = line + "\n"
+                else:
+                    current += line + "\n"
+            if current:
+                chunks.append(current)
+            for chunk in chunks:
+                send_message(receive_id, receive_id_type, chunk)
+        else:
+            send_message(receive_id, receive_id_type, reply)
+
+    threading.Thread(target=process, daemon=True).start()
+
+
 def start_ws_client():
     handler = (
         EventDispatcherHandler
@@ -389,12 +483,17 @@ def start_ws_client():
     client.start()
 
 
-# 启动飞书长连接（模块加载时自动启动）
-ws_thread = threading.Thread(target=start_ws_client, daemon=True)
-ws_thread.start()
-
 # 为了兼容旧配置
 FEISHU_ENCRYPT_KEY = ""
+
+# 云端模式（有 PORT 环境变量）→ 只用 Webhook，不启动长连接
+# 本地模式（无 PORT 环境变量）→ 启动长连接
+if not os.getenv("RENDER") and not os.getenv("PORT"):
+    logger.info("本地模式：启动飞书长连接")
+    ws_thread = threading.Thread(target=start_ws_client, daemon=True)
+    ws_thread.start()
+else:
+    logger.info("云端模式：使用 Webhook 接收消息")
 
 if __name__ == "__main__":
     print("=" * 50)
