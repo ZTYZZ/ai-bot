@@ -560,13 +560,12 @@ def handle_raw_event(event: dict):
         if not existing_master and not user["role"]:
             memory.set_user(sender_id, name="主人", role="主人")
             debug(f"自动任命主人: {sender_id[:12]}")
-        # 非主人发消息时提示
-        if user["role"] != "主人":
-            has_master = memory.get_user_by_role("主人")
-            if has_master and not user["role"]:
-                debug(f"非主人消息被忽略: {sender_id[:12]}")
-                send_message(receive_id, receive_id_type, "抱歉，我只听主人的指令。")
-                return
+            user = memory.get_user(sender_id)  # 重新获取更新后的信息
+        # 非主人发消息时忽略
+        if user["role"] != "主人" and memory.get_user_by_role("主人"):
+            debug(f"非主人消息被忽略: {sender_id[:12]}")
+            send_message(receive_id, receive_id_type, "抱歉，我只听主人的指令。")
+            return
 
     try:
         content = json.loads(message.get("content", "{}"))
