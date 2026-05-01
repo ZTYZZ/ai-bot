@@ -13,7 +13,7 @@ from config import (
     DEEPSEEK_API_KEY,
 )
 from memory import Memory
-from ai_client import chat, extract_entities
+from ai_client import chat, extract_entities, chat_with_tool_results
 
 from lark_oapi.ws import Client as WSClient
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
@@ -193,7 +193,7 @@ def send_message(receive_id: str, receive_id_type: str, content: str):
     return result
 
 
-def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_type: str) -> bool:
+def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_type: str, sender_id: str = "") -> bool:
     """处理指令型消息。返回 True 表示是指令并已处理。"""
     text = user_text.strip()
 
@@ -276,21 +276,84 @@ def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_typ
     if text in ["/help", "/帮助", "/?"]:
         help_text = """主人，这些是您可以对我使用的指令：
 
-🤖 调教/规则
-/rule add <规则> — 添加一条规则让我遵守
-/rule list — 查看所有规则
-/rule del <编号> — 删除指定规则
+👤 用户管理
+/setuser <open_id> <名字> <角色> — 注册用户身份
+/users — 查看已注册用户
+
+📨 消息
+/send <名字> <内容> — 给指定用户发消息
+（也可以直接说「给XX发消息说...」我能自动识别）
+
+🤖 规则
+/rule add <规则> — 添加规则
+/rule list — 查看规则
+/rule del <编号> — 删除规则
 
 🧠 记忆
-/remember <内容> — 让我记住重要信息
-/recall — 查看我记住的信息
-/forget <key> — 忘记某条记忆
+/remember <内容> — 记住信息
+/recall — 回忆记忆
+/forget <key> — 忘记
 
-🔄 对话
-/clear — 清除当前对话历史
-
-主人只要正常跟我聊天，我也会自动学习和记住你的偏好！"""
+🔄 /clear — 清除对话历史"""
         send_message(receive_id, receive_id_type, help_text)
+        return True
+
+    # === /users ===
+    if text in ["/users", "/用户"]:
+        users = memory.list_users()
+        if not users:
+            send_message(receive_id, receive_id_type, "还没有注册任何用户。用 /setuser <open_id> <名字> <角色> 来注册。")
+        else:
+            lines = ["已注册用户："]
+            for u in users:
+                name = u["name"] or "未命名"
+                role = u["role"] or "未设定"
+                lines.append(f"- {name} ({role}) | open_id: {u['open_id'][:12]}...")
+            send_message(receive_id, receive_id_type, "\n".join(lines))
+        return True
+
+    # === /setuser <open_id> <名字> <角色> ===
+    if text.startswith("/setuser "):
+        parts = text.split(" ", 3)
+        if len(parts) >= 4:
+            _, oid, name, role = parts
+            memory.set_user(oid, name=name, role=role)
+            send_message(receive_id, receive_id_type, f"已注册：{name} → {role}")
+        elif len(parts) == 3:
+            _, oid, name = parts
+            memory.set_user(oid, name=name)
+            send_message(receive_id, receive_id_type, f"已注册用户：{name}")
+        else:
+            send_message(receive_id, receive_id_type, "格式：/setuser <open_id> <名字> <角色>")
+        return True
+
+    # === /send <名字> <内容> ===
+    if text.startswith("/send "):
+        parts = text.split(" ", 2)
+        if len(parts) >= 3:
+            _, target_name, msg_content = parts
+            target = memory.get_user_by_name(target_name)
+            if not target:
+                send_message(receive_id, receive_id_type, f"主人，找不到用户「{target_name}」。先用 /setuser 注册一下。")
+            else:
+                result = send_message(target["open_id"], "open_id", msg_content)
+                if result.get("code") == 0:
+                    send_message(receive_id, receive_id_type, f"已发送给 {target_name}。")
+                else:
+                    send_message(receive_id, receive_id_type, f"发送失败：{result.get('msg')}")
+        else:
+            send_message(receive_id, receive_id_type, "格式：/send <名字> <内容>")
+        return True
+
+    # === /whoami ===
+    if text in ["/whoami", "/我是谁"]:
+        user = memory.get_user(sender_id)
+        if user["name"]:
+            send_message(receive_id, receive_id_type,
+                         f"你是 {user['name']}，角色：{user['role'] or '未设定'}。")
+        else:
+            send_message(receive_id, receive_id_type,
+                         "你还没注册。让主人用 /setuser <你的open_id> <名字> <角色> 来注册你。")
         return True
 
     return False
@@ -432,23 +495,46 @@ def webhook():
     return jsonify({"code": 0})
 
 
+def execute_tool_call(tool_call: dict) -> str:
+    """执行 Agent 工具调用，返回结果文本"""
+    func_name = tool_call["function"]["name"]
+    func_args = json.loads(tool_call["function"]["arguments"])
+
+    if func_name == "send_message_to_user":
+        target_name = func_args.get("user_name", "")
+        msg_content = func_args.get("content", "")
+        target = memory.get_user_by_name(target_name)
+        if not target:
+            return f"错误：找不到用户「{target_name}」。已知用户：{', '.join(u['name'] for u in memory.list_users() if u['name'])}"
+        result = send_message(target["open_id"], "open_id", msg_content)
+        if result.get("code") == 0:
+            return f"消息已成功发送给 {target_name}。"
+        else:
+            return f"发送失败：{result.get('msg')}"
+
+    elif func_name == "list_known_users":
+        users = memory.list_users()
+        if not users:
+            return "暂无已注册用户。"
+        return "\n".join(f"- {u['name']} ({u['role']})" for u in users if u['name'])
+
+    return f"未知工具: {func_name}"
+
+
 def handle_raw_event(event: dict):
     """处理 Webhook 推送的原始事件"""
     message = event.get("message", {})
     sender = event.get("sender", {})
 
     if not message:
-        debug("handle_raw_event: message 为空")
         return
 
     event_id = message.get("message_id", "")
     if event_id in processed_events:
-        debug(f"重复事件: {event_id}")
         return
     processed_events.add(event_id)
 
     if message.get("message_type") != "text":
-        debug(f"非文本消息: {message.get('message_type')}")
         return
 
     chat_id = message.get("chat_id", "")
@@ -457,49 +543,87 @@ def handle_raw_event(event: dict):
     if chat_type == "p2p":
         receive_id = sender.get("sender_id", {}).get("open_id", "")
         receive_id_type = "open_id"
+        sender_id = receive_id
     else:
         receive_id = chat_id
         receive_id_type = "chat_id"
+        sender_id = sender.get("sender_id", {}).get("open_id", "")
 
     if not receive_id:
-        debug("receive_id 为空")
         return
+
+    # 注册/获取用户
+    if sender_id:
+        user = memory.get_or_create_user(sender_id)
+        if not user["name"] and not user["role"]:
+            # 首次见面，更新 open_id
+            pass
 
     try:
         content = json.loads(message.get("content", "{}"))
         user_text = content.get("text", "")
     except (json.JSONDecodeError, TypeError):
-        debug("消息内容解析失败")
         return
 
     # 去 @
     if "@" in user_text:
         import re
         user_text = re.sub(r'@_user_\d+\s*', '', user_text).strip()
+        user_text = re.sub(r'@\S+\s*', '', user_text).strip()
 
     if not user_text:
-        debug("user_text 为空")
         return
 
-    debug(f"收到消息: chat={chat_id} text={user_text[:100]}")
+    debug(f"收到消息: sender={sender_id[:12]} chat={chat_id} text={user_text[:100]}")
 
     def process():
-        if handle_command(chat_id, user_text, receive_id, receive_id_type):
+        # 先处理指令
+        if handle_command(chat_id, user_text, receive_id, receive_id_type, sender_id):
             debug("已处理指令")
             return
+
         try:
             debug(f"调用 AI: {user_text[:50]}")
             reply = chat(chat_id, user_text, memory)
-            debug(f"AI 回复: {reply[:100]}")
+            debug(f"AI 回复: {reply[:200]}")
+
+            # 检测 TOOL_CALLS 标记
+            if "<!--TOOL_CALLS:" in reply:
+                # 提取 tool calls
+                tc_start = reply.index("<!--TOOL_CALLS:")
+                tc_end = reply.index("-->", tc_start) + 3
+                tc_json = reply[tc_start + 15:tc_end - 3]
+                tool_calls = json.loads(tc_json)
+
+                # 先发送 AI 的非工具部分
+                text_part = reply[:tc_start].strip()
+                if not text_part:
+                    text_part = reply[tc_end:].strip()
+
+                # 执行工具
+                tool_results = []
+                for tc in tool_calls:
+                    debug(f"执行工具: {tc['function']['name']}")
+                    result = execute_tool_call(tc)
+                    debug(f"工具结果: {result[:100]}")
+                    tool_results.append({"id": tc["id"], "result": result})
+
+                # 将工具结果发回 AI 获取最终回复
+                final_reply = chat_with_tool_results(chat_id, user_text, tool_results, memory)
+                debug(f"AI 最终回复: {final_reply[:200]}")
+                send_message(receive_id, receive_id_type, final_reply)
+            else:
+                send_message(receive_id, receive_id_type, reply)
+
+            # 自动提取记忆
             key, value = extract_entities(user_text)
             if key and value:
                 memory.remember(chat_id, key, value)
         except Exception as e:
-            reply = f"主人抱歉，我出错了：{str(e)}"
-            debug(f"AI 调用失败: {e}")
-
-        result = send_message(receive_id, receive_id_type, reply)
-        debug(f"发送结果: {result}")
+            import traceback
+            err = f"主人抱歉，我出错了：{str(e)}"
+            debug(f"异常: {traceback.format_exc()}")
+            send_message(receive_id, receive_id_type, err)
 
     threading.Thread(target=process, daemon=True).start()
 

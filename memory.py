@@ -15,6 +15,7 @@ class Memory:
             CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id TEXT NOT NULL,
+                sender_id TEXT DEFAULT '',
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -27,6 +28,16 @@ class Memory:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                open_id TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL DEFAULT '',
+                notes TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS long_term_memory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id TEXT NOT NULL DEFAULT 'global',
@@ -37,6 +48,7 @@ class Memory:
             );
 
             CREATE INDEX IF NOT EXISTS idx_conv_chat ON conversations(chat_id);
+            CREATE INDEX IF NOT EXISTS idx_conv_sender ON conversations(sender_id);
             CREATE INDEX IF NOT EXISTS idx_rules_chat ON rules(chat_id);
             CREATE INDEX IF NOT EXISTS idx_ltm_chat ON long_term_memory(chat_id);
         """)
@@ -44,14 +56,72 @@ class Memory:
 
     # ========== 对话历史 ==========
 
-    def save_message(self, chat_id: str, role: str, content: str):
+    def save_message(self, chat_id: str, role: str, content: str, sender_id: str = ""):
         """保存一条对话消息"""
         self.conn.execute(
-            "INSERT INTO conversations (chat_id, role, content) VALUES (?, ?, ?)",
-            (chat_id, role, content),
+            "INSERT INTO conversations (chat_id, sender_id, role, content) VALUES (?, ?, ?, ?)",
+            (chat_id, sender_id, role, content),
         )
         self.conn.commit()
         self._trim_history(chat_id)
+
+    # ========== 用户管理 ==========
+
+    def get_or_create_user(self, open_id: str) -> dict:
+        """获取或创建用户"""
+        cursor = self.conn.execute(
+            "SELECT open_id, name, role, notes FROM users WHERE open_id = ?",
+            (open_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {"open_id": row[0], "name": row[1], "role": row[2], "notes": row[3]}
+        else:
+            self.conn.execute(
+                "INSERT INTO users (open_id) VALUES (?)",
+                (open_id,),
+            )
+            self.conn.commit()
+            return {"open_id": open_id, "name": "", "role": "", "notes": ""}
+
+    def set_user(self, open_id: str, name: str = "", role: str = "", notes: str = ""):
+        """设置用户信息"""
+        self.conn.execute("""
+            INSERT INTO users (open_id, name, role, notes, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(open_id) DO UPDATE SET
+                name = CASE WHEN ? != '' THEN ? ELSE users.name END,
+                role = CASE WHEN ? != '' THEN ? ELSE users.role END,
+                notes = CASE WHEN ? != '' THEN ? ELSE users.notes END,
+                updated_at = CURRENT_TIMESTAMP
+        """, (open_id, name, role, notes, name, name, role, role, notes, notes))
+        self.conn.commit()
+
+    def get_user(self, open_id: str) -> dict:
+        """获取用户信息"""
+        return self.get_or_create_user(open_id)
+
+    def get_user_by_name(self, name: str) -> dict:
+        """按名字查找用户"""
+        cursor = self.conn.execute(
+            "SELECT open_id, name, role, notes FROM users WHERE name = ?",
+            (name,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {"open_id": row[0], "name": row[1], "role": row[2], "notes": row[3]}
+        return {}
+
+    def list_users(self) -> list:
+        """列出所有用户"""
+        cursor = self.conn.execute(
+            "SELECT open_id, name, role, notes FROM users ORDER BY role, name"
+        )
+        return [{"open_id": row[0], "name": row[1], "role": row[2], "notes": row[3]} for row in cursor.fetchall()]
+
+    def get_all_users_map(self) -> dict:
+        """返回 open_id → 用户信息的映射"""
+        users = self.list_users()
+        return {u["open_id"]: u for u in users}
 
     def _trim_history(self, chat_id: str):
         """删除超出限制的旧消息"""
