@@ -148,7 +148,7 @@ class CommandHandler:
                     name = u["name"] or "未命名"
                     role = u["role"] or "未设定"
                     lines.append(
-                        f"- {name} ({role}) | open_id: {u['open_id'][:12]}..."
+                        f"- {name} ({role}) | open_id: {u['open_id']}"
                     )
                 self.client.send_text_message(receive_id, receive_id_type,
                                               "\n".join(lines))

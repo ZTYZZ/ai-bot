@@ -212,8 +212,10 @@ class EventHandler:
         # 非主人发消息时忽略（前提是已经有主人）
         if user["role"] != "主人" and self.memory.get_user_by_role("主人"):
             logger.info(f"非主人消息被忽略: {sender_id[:12]}...")
-            self.client.send_text_message(receive_id, receive_id_type,
-                                          "抱歉，我只听主人的指令。")
+            self.client.send_text_message(
+                receive_id, receive_id_type,
+                f"抱歉，我只听主人的指令。\n\n你的 open_id 是：{sender_id}\n请将这个 open_id 发给主人，让主人用 /setuser {sender_id} <名字> <角色> 来注册你。"
+            )
             return False, "not_master"
 
         return True, ""
