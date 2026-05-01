@@ -10,11 +10,12 @@ logger = logging.getLogger(__name__)
 
 
 class EventHandler:
-    def __init__(self, memory, feishu_client, command_handler):
+    def __init__(self, memory, feishu_client, command_handler, debug_func=None):
         self.memory = memory
         self.client = feishu_client
         self.commands = command_handler
         self.processed_events = set()  # 去重
+        self._debug = debug_func or (lambda m: logger.info(m))
 
     # ============================================================
     # 统一处理入口
@@ -128,24 +129,27 @@ class EventHandler:
                          receive_id_type: str, sender_id: str):
         """统一的消息处理流水线"""
         try:
+            self._debug(f"开始处理消息: {user_text[:80]}")
             # 1. 自动注册用户 + 判断主人
             should_process, skip_reason = self._check_access(sender_id, user_text, receive_id, receive_id_type)
             if not should_process:
+                self._debug(f"消息被过滤: {skip_reason}")
                 return
 
             # 2. 尝试指令处理
             if self.commands.handle(chat_id, user_text, receive_id, receive_id_type, sender_id):
-                logger.info("已通过指令处理")
+                self._debug("已通过指令处理")
                 return
 
             # 3. AI 对话
-            logger.info(f"调用 AI: {user_text[:50]}")
+            self._debug(f"调用 AI: {user_text[:50]}")
             resp_type, resp_data = chat(chat_id, user_text, self.memory)
 
+            self._debug(f"AI 返回: type={resp_type}, data_len={len(str(resp_data))}")
             if resp_type == "text":
                 self._send_reply(receive_id, receive_id_type, resp_data)
             elif resp_type == "tool_calls":
-                logger.info(f"AI 请求工具调用: {resp_data}")
+                self._debug(f"AI 请求工具调用: {resp_data}")
 
             # 4. 自动提取记忆
             key, value = extract_entities(user_text)
@@ -154,6 +158,7 @@ class EventHandler:
 
         except Exception as e:
             import traceback
+            self._debug(f"处理消息异常: {traceback.format_exc()}")
             err = f"主人抱歉，我出错了：{str(e)}"
             logger.error(f"处理消息异常: {traceback.format_exc()}")
             try:

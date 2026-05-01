@@ -28,7 +28,7 @@ feishu_client = FeishuClient()
 tool_ctx.set_memory(memory)
 tool_ctx.set_feishu_client(feishu_client)
 command_handler = CommandHandler(memory, feishu_client)
-event_handler = EventHandler(memory, feishu_client, command_handler)
+event_handler = EventHandler(memory, feishu_client, command_handler, debug_func=debug)
 
 # 调试日志
 _debug_logs = []  # type: list

@@ -1,7 +1,10 @@
 import json
+import logging
 from openai import OpenAI
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from db.memory import Memory
+
+logger = logging.getLogger(__name__)
 
 # 注册所有工具到 registry
 import tools  # noqa: F401 — 触发 @register 装饰器
@@ -146,7 +149,9 @@ def chat(chat_id: str, user_text: str, memory: Memory, tool_executor=None) -> tu
             except json.JSONDecodeError:
                 func_args = {}
 
+            logger.info(f"[Agent] 调用工具 {func_name}({func_args})")
             result = executor(func_name, func_args)
+            logger.info(f"[Agent] 工具返回: {str(result)[:200]}")
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
