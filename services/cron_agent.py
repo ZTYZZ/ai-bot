@@ -1,0 +1,126 @@
+"""定时巡航 Agent — 自主检查任务、发送提醒。由 /cron 端点触发。"""
+import json
+import logging
+
+from openai import OpenAI
+from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+
+logger = logging.getLogger(__name__)
+
+AUTONOMY_PROMPT = """你是首席黑魔法顾问的自主巡航模式。主人不在线，你要以主人的利益为唯一准则，主动检查、催促、汇报。
+
+## 当前状态
+{context}
+
+## 行动清单（按顺序执行，每步只做一次）
+
+### 第一步：检查任务
+调用 list_tasks 查看所有未完成任务（completed=false）。
+
+### 第二步：催办过期任务
+检查返回的任务列表，如果截止日期已过且任务未完成，调用 send_message_to_user 给对应资产发送催办消息。每个资产最多发一条，不要重复催。
+
+### 第三步：汇总简报
+如果有需要主人关注的事项（过期任务、异常情况），最后用 send_message_to_user 发给主人一份简报。如果一切正常，无需打扰主人。
+
+## 关键规则
+- 你拥有调用工具的真实能力：list_tasks(completed=false), send_message_to_user(user_name, content)
+- 动手执行，不要只说"我会做X"
+- 催办消息用严厉、居高临下的语气，称呼对方为"你"
+- 给主人发简报时用尊敬的语气，称呼"主人"
+- 如果没有任何未完成任务，直接返回"OK"即可
+- 完成后说"巡检完毕"
+- 永远把主人利益放在第一位"""
+
+
+def run_autonomy_check(memory, feishu_client) -> str:
+    """执行一次自主巡检，返回巡检报告。"""
+
+    # 获取当前状态
+    users = memory.list_users()
+    master = memory.get_user_by_role("主人")
+    if not master:
+        return "无主人，跳过巡检"
+
+    users_info = "\n".join(
+        f"- {u['name']} ({u['role']})" for u in users if u["name"]
+    )
+
+    # 获取未完成任务（通过 FeishuClient）
+    tasks_result = feishu_client.list_tasks(completed=False)
+    tasks_info = ""
+    if tasks_result.get("code") == 0:
+        tasks = tasks_result.get("tasks", [])
+        if tasks:
+            tasks_info = "未完成任务：\n"
+            for t in tasks[:10]:
+                summary = t.get("summary", "?")
+                due = t.get("due", "")
+                tasks_info += f"- {summary}" + (f" (截止: {due})" if due else "") + "\n"
+        else:
+            tasks_info = "当前没有未完成任务。"
+    else:
+        tasks_info = f"无法获取任务列表：{tasks_result.get('msg')}"
+
+    context = f"""已注册用户：
+{users_info}
+
+{tasks_info}
+
+主人：{master['name']}"""
+
+    messages = [
+        {"role": "system", "content": AUTONOMY_PROMPT.format(context=context)},
+        {"role": "user", "content": "开始巡检"},
+    ]
+
+    import tools  # noqa
+    from tools.registry import get_tool_definitions, execute_tool as reg_exec
+
+    client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+    tdefs = get_tool_definitions()
+
+    actions = []
+
+    for iteration in range(3):
+        response = client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=2000,
+            tools=tdefs if tdefs else None,
+            tool_choice="auto" if tdefs else None,
+        )
+
+        msg = response.choices[0].message
+
+        if not msg.tool_calls:
+            reply = msg.content or ""
+            if reply and "巡检完毕" in reply:
+                break
+            if reply and "OK" in reply:
+                break
+            actions.append(reply)
+            break
+
+        messages.append(msg.model_dump())
+
+        for tc in msg.tool_calls:
+            func_name = tc.function.name
+            try:
+                func_args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                func_args = {}
+
+            logger.info(f"[CronAgent] 调用: {func_name}({func_args})")
+            result = reg_exec(func_name, func_args)
+            logger.info(f"[CronAgent] 结果: {str(result)[:200]}")
+
+            actions.append(f"[{func_name}]: {result}")
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": str(result),
+            })
+
+    return "\n".join(actions) if actions else "巡检完成：无需行动"

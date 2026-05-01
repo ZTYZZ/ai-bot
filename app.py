@@ -13,6 +13,7 @@ from config import (
 )
 from db.memory import Memory
 from services.feishu_client import FeishuClient
+from services.cron_agent import run_autonomy_check
 from handlers.commands import CommandHandler
 from handlers.events import EventHandler
 import tools.context as tool_ctx
@@ -90,6 +91,19 @@ def debug_page():
         return app.response_class("\n".join(lines), content_type="text/plain")
     except Exception as e:
         return f"Debug Error: {str(e)}"
+
+
+@app.route("/cron")
+def cron_check():
+    """定时巡航端点 — 由外部 cron 服务（如 cron-job.org）定期触发"""
+    try:
+        report = run_autonomy_check(memory, feishu_client)
+        debug(f"巡航报告: {report[:200]}")
+        return jsonify({"code": 0, "report": report})
+    except Exception as e:
+        import traceback
+        logger.error(f"巡航异常: {traceback.format_exc()}")
+        return jsonify({"code": -1, "error": str(e)})
 
 
 @app.route("/webhook", methods=["POST"])
