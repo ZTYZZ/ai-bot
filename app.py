@@ -10,6 +10,7 @@ from config import (
     FEISHU_APP_ID,
     FEISHU_APP_SECRET,
     FEISHU_VERIFY_TOKEN,
+    DEEPSEEK_API_KEY,
 )
 from memory import Memory
 from ai_client import chat, extract_entities
