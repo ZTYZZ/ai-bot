@@ -567,7 +567,13 @@ def webhook():
 
     if event_type == "im.message.receive_v1":
         event = body.get("event", {})
-        threading.Thread(target=handle_raw_event, args=(event,), daemon=True).start()
+        def safe_handle():
+            try:
+                handle_raw_event(event)
+            except Exception as e:
+                import traceback
+                debug(f"handle_raw_event 崩溃: {traceback.format_exc()}")
+        threading.Thread(target=safe_handle, daemon=True).start()
 
     return jsonify({"code": 0})
 
@@ -601,6 +607,7 @@ def handle_raw_event(event: dict):
     sender = event.get("sender", {})
 
     if not message:
+        debug("raw_event: message 为空")
         return
 
     event_id = message.get("message_id", "")
@@ -608,7 +615,9 @@ def handle_raw_event(event: dict):
         return
     processed_events.add(event_id)
 
-    if message.get("message_type") != "text":
+    msg_type = message.get("message_type", "")
+    if msg_type != "text":
+        debug(f"raw_event: 非文本消息 type={msg_type}")
         return
 
     chat_id = message.get("chat_id", "")
