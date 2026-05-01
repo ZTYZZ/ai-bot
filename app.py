@@ -164,22 +164,33 @@ def md_to_feishu_post(md_text: str) -> dict:
 
 
 def send_message(receive_id: str, receive_id_type: str, content: str):
-    """发送消息到飞书（post 富文本格式）"""
+    """发送消息到飞书"""
     token = get_tenant_token()
     url = f"{FEISHU_BASE}/im/v1/messages"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    post_content = md_to_feishu_post(content)
+    # 纯文本模式，兼容性最好
     payload = {
         "receive_id": receive_id,
-        "msg_type": "post",
-        "content": json.dumps({"content": post_content}, ensure_ascii=False),
+        "msg_type": "text",
+        "content": json.dumps({"text": content}, ensure_ascii=False),
     }
     resp = requests.post(url, headers=headers, json=payload,
                          params={"receive_id_type": receive_id_type}, timeout=10)
-    return resp.json()
+    result = resp.json()
+    # 文本发送失败时尝试简化内容
+    if result.get("code") != 0:
+        debug(f"发送失败({result.get('code')}): {result.get('msg')}")
+        # 截断过长内容重试
+        if len(content) > 5000:
+            short = content[:5000] + "\n...(内容过长已截断)"
+            payload["content"] = json.dumps({"text": short}, ensure_ascii=False)
+            resp = requests.post(url, headers=headers, json=payload,
+                                 params={"receive_id_type": receive_id_type}, timeout=10)
+            result = resp.json()
+    return result
 
 
 def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_type: str) -> bool:
