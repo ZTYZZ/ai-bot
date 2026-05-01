@@ -49,18 +49,119 @@ def get_tenant_token():
     return _token["value"]
 
 
+def md_to_feishu_post(md_text: str) -> dict:
+    """将 Markdown 文本转为飞书 post 富文本格式"""
+    lines = md_text.split("\n")
+    paragraphs = []
+    current_para = []
+    in_code_block = False
+
+    for line in lines:
+        # 代码块
+        if line.startswith("```"):
+            in_code_block = not in_code_block
+            if current_para:
+                paragraphs.append(current_para)
+                current_para = []
+            if not in_code_block:
+                paragraphs.append([{"tag": "text", "text": line, "style": ["inline_code"]}])
+            continue
+
+        if in_code_block:
+            current_para.append({"tag": "text", "text": line + "\n", "style": ["inline_code"]})
+            continue
+
+        # 空行 = 新段落
+        if not line.strip():
+            if current_para:
+                paragraphs.append(current_para)
+                current_para = []
+            continue
+
+        # 标题
+        if line.startswith("### "):
+            if current_para:
+                paragraphs.append(current_para)
+                current_para = []
+            current_para.append({"tag": "text", "text": line[4:], "style": ["bold"]})
+            paragraphs.append(current_para)
+            current_para = []
+            continue
+
+        if line.startswith("## "):
+            if current_para:
+                paragraphs.append(current_para)
+                current_para = []
+            current_para.append({"tag": "text", "text": line[3:], "style": ["bold"]})
+            paragraphs.append(current_para)
+            current_para = []
+            continue
+
+        # 列表项
+        if line.strip().startswith("- ") or line.strip().startswith("* "):
+            if current_para:
+                paragraphs.append(current_para)
+                current_para = []
+            text = "· " + line.strip()[2:]
+            current_para.append({"tag": "text", "text": text})
+            paragraphs.append(current_para)
+            current_para = []
+            continue
+
+        # 数字列表
+        stripped = line.strip()
+        if stripped and stripped[0].isdigit() and ". " in stripped[:4]:
+            if current_para:
+                paragraphs.append(current_para)
+                current_para = []
+            current_para.append({"tag": "text", "text": stripped})
+            paragraphs.append(current_para)
+            current_para = []
+            continue
+
+        # 普通行：处理行内 **bold**
+        segs = []
+        parts = line.split("**")
+        for i, part in enumerate(parts):
+            if not part:
+                continue
+            if i % 2 == 1:
+                segs.append({"tag": "text", "text": part, "style": ["bold"]})
+            else:
+                segs.append({"tag": "text", "text": part})
+
+        if segs:
+            current_para.extend(segs)
+            # 行末加空格保证换行
+            current_para.append({"tag": "text", "text": " "})
+
+    if current_para:
+        paragraphs.append(current_para)
+
+    if not paragraphs:
+        paragraphs = [[{"tag": "text", "text": md_text}]]
+
+    return {
+        "zh_cn": {
+            "title": "",
+            "content": paragraphs,
+        }
+    }
+
+
 def send_message(receive_id: str, receive_id_type: str, content: str):
-    """发送消息到飞书"""
+    """发送消息到飞书（post 富文本格式）"""
     token = get_tenant_token()
     url = f"{FEISHU_BASE}/im/v1/messages"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
+    post_content = md_to_feishu_post(content)
     payload = {
         "receive_id": receive_id,
-        "msg_type": "text",
-        "content": json.dumps({"text": content}, ensure_ascii=False),
+        "msg_type": "post",
+        "content": json.dumps({"content": post_content}, ensure_ascii=False),
     }
     resp = requests.post(url, headers=headers, json=payload,
                          params={"receive_id_type": receive_id_type}, timeout=10)
