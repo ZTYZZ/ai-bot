@@ -29,6 +29,19 @@ FEISHU_BASE = "https://open.feishu.cn/open-apis"
 # Token 缓存
 _token = {"value": None, "expire": 0}
 
+# 调试日志
+_debug_logs = []  # 存储最近的调试消息
+
+
+def debug(msg: str):
+    """记录调试日志"""
+    ts = time.strftime("%H:%M:%S")
+    entry = f"[{ts}] {msg}"
+    _debug_logs.append(entry)
+    if len(_debug_logs) > 50:
+        _debug_logs.pop(0)
+    logger.info(msg)
+
 
 def get_tenant_token():
     """获取 tenant_access_token（带缓存）"""
@@ -369,6 +382,21 @@ def health():
     return "AI Master Bot is running."
 
 
+@app.route("/debug")
+def debug_page():
+    """查看调试日志和状态"""
+    lines = ["=== 调试信息 ===", ""]
+    lines.append(f"FEISHU_APP_ID: {'已设置' if FEISHU_APP_ID else '❌ 未设置'}")
+    lines.append(f"FEISHU_APP_SECRET: {'已设置' if FEISHU_APP_SECRET else '❌ 未设置'}")
+    lines.append(f"DEEPSEEK_API_KEY: {'已设置' if DEEPSEEK_API_KEY else '❌ 未设置'}")
+    lines.append(f"已处理事件数: {len(processed_events)}")
+    lines.append("")
+    lines.append("--- 最近日志 ---")
+    for log in _debug_logs[-20:]:
+        lines.append(log)
+    return "\n".join(lines), 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     """飞书 Webhook 接收端点"""
@@ -379,7 +407,9 @@ def webhook():
         return jsonify({"challenge": body["challenge"]})
 
     # 事件处理
-    event_type = body.get("header", {}).get("event_type", "")
+    event_type = body.get("header", {}).get("event_type", "unknown")
+    debug(f"收到推送: type={event_type}")
+
     if event_type == "im.message.receive_v1":
         event = body.get("event", {})
         threading.Thread(target=handle_raw_event, args=(event,), daemon=True).start()
@@ -393,14 +423,17 @@ def handle_raw_event(event: dict):
     sender = event.get("sender", {})
 
     if not message:
+        debug("handle_raw_event: message 为空")
         return
 
     event_id = message.get("message_id", "")
     if event_id in processed_events:
+        debug(f"重复事件: {event_id}")
         return
     processed_events.add(event_id)
 
     if message.get("message_type") != "text":
+        debug(f"非文本消息: {message.get('message_type')}")
         return
 
     chat_id = message.get("chat_id", "")
@@ -414,12 +447,14 @@ def handle_raw_event(event: dict):
         receive_id_type = "chat_id"
 
     if not receive_id:
+        debug("receive_id 为空")
         return
 
     try:
         content = json.loads(message.get("content", "{}"))
         user_text = content.get("text", "")
     except (json.JSONDecodeError, TypeError):
+        debug("消息内容解析失败")
         return
 
     # 去 @
@@ -428,37 +463,28 @@ def handle_raw_event(event: dict):
         user_text = re.sub(r'@_user_\d+\s*', '', user_text).strip()
 
     if not user_text:
+        debug("user_text 为空")
         return
 
-    logger.info(f"[Webhook] chat={chat_id} text={user_text[:100]}")
+    debug(f"收到消息: chat={chat_id} text={user_text[:100]}")
 
     def process():
         if handle_command(chat_id, user_text, receive_id, receive_id_type):
+            debug("已处理指令")
             return
         try:
+            debug(f"调用 AI: {user_text[:50]}")
             reply = chat(chat_id, user_text, memory)
+            debug(f"AI 回复: {reply[:100]}")
             key, value = extract_entities(user_text)
             if key and value:
                 memory.remember(chat_id, key, value)
         except Exception as e:
             reply = f"主人抱歉，我出错了：{str(e)}"
-            logger.error(f"AI 调用失败: {e}")
+            debug(f"AI 调用失败: {e}")
 
-        if len(reply.encode("utf-8")) > 28000:
-            chunks = []
-            current = ""
-            for line in reply.split("\n"):
-                if len((current + line).encode("utf-8")) > 28000:
-                    chunks.append(current)
-                    current = line + "\n"
-                else:
-                    current += line + "\n"
-            if current:
-                chunks.append(current)
-            for chunk in chunks:
-                send_message(receive_id, receive_id_type, chunk)
-        else:
-            send_message(receive_id, receive_id_type, reply)
+        result = send_message(receive_id, receive_id_type, reply)
+        debug(f"发送结果: {result}")
 
     threading.Thread(target=process, daemon=True).start()
 
