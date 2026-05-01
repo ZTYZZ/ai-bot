@@ -1,6 +1,6 @@
 # 导入工具模块，触发 @register 装饰器注册
-# 只保留不需要额外飞书权限的工具
-from tools import messaging  # send_message_to_user（需要 im:message 权限，已开通）
+from tools import messaging  # send_message_to_user
+from tools import tasks  # create_task, list_task（需要 task:task:readwrite 权限）
 
 # list_known_users: 只查本地数据库，不调飞书 API，安全
 from tools.registry import register as _register

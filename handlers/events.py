@@ -209,14 +209,23 @@ class EventHandler:
             )
             return False, "reset_executed"
 
-        # 非主人发消息时忽略（前提是已经有主人）
-        if user["role"] != "主人" and self.memory.get_user_by_role("主人"):
-            logger.info(f"非主人消息被忽略: {sender_id[:12]}...")
+        # 权限判断
+        has_master = bool(self.memory.get_user_by_role("主人"))
+
+        # 未注册 + 已有主人 → 拒绝
+        if not user["role"] and has_master:
+            logger.info(f"未注册用户消息被忽略: {sender_id[:12]}...")
             self.client.send_text_message(
                 receive_id, receive_id_type,
                 f"抱歉，我只听主人的指令。\n\n你的 open_id 是：{sender_id}\n请将这个 open_id 发给主人，让主人用 /setuser {sender_id} <名字> <角色> 来注册你。"
             )
-            return False, "not_master"
+            return False, "unregistered"
+
+        # 已注册的资产/其他角色 → 允许对话（用于任务汇报）
+        if user["role"] not in ("主人", "") and has_master:
+            # 更新用户名（飞书可能不传名字）
+            self._debug(f"资产用户发言: {user.get('name', '未知')} ({sender_id[:12]}...)")
+            return True, ""
 
         return True, ""
 
