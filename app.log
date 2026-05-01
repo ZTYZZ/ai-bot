@@ -1,9 +1,27 @@
-2026-05-01 14:42:24,253 [INFO] 🚀 AI 助手启动中，正在连接飞书长连接...
+2026-05-01 15:07:13,807 [INFO] 🚀 AI 助手启动中，正在连接飞书长连接...
 ==================================================
   🤖 AI 助手已启动
   使用长连接模式，无需公网地址
   在飞书中给你的机器人发消息吧！
   按 Ctrl+C 停止
 ==================================================
-[Lark] [2026-05-01 14:42:24,523] [INFO] connected to wss://msg-frontier.feishu.cn/ws/v2?fpid=493&aid=552564&device_id=7634810042361679076&access_key=0eb1a03bbf952ccda4c6d46dfdcb4007&service_id=33554678&ticket=c73c5251-dd88-488e-b855-b2d62c558e21 [conn_id=7634810042361679076]
-2026-05-01 14:42:24,523 [INFO] connected to wss://msg-frontier.feishu.cn/ws/v2?fpid=493&aid=552564&device_id=7634810042361679076&access_key=0eb1a03bbf952ccda4c6d46dfdcb4007&service_id=33554678&ticket=c73c5251-dd88-488e-b855-b2d62c558e21 [conn_id=7634810042361679076]
+[Lark] [2026-05-01 15:07:14,264] [INFO] connected to wss://msg-frontier.feishu.cn/ws/v2?fpid=493&aid=552564&device_id=7634816428701437139&access_key=ef94b359841fb90fb3346f298e2dc94e&service_id=33554678&ticket=5ced649c-9ae5-4a86-97ec-4f2072d82d6f [conn_id=7634816428701437139]
+2026-05-01 15:07:14,264 [INFO] connected to wss://msg-frontier.feishu.cn/ws/v2?fpid=493&aid=552564&device_id=7634816428701437139&access_key=ef94b359841fb90fb3346f298e2dc94e&service_id=33554678&ticket=5ced649c-9ae5-4a86-97ec-4f2072d82d6f [conn_id=7634816428701437139]
+2026-05-01 15:10:38,185 [INFO] [消息] chat=oc_93935e055f3039ca2cd4989f4fc8b82e text=你是
+2026-05-01 15:10:38,585 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:10:41,004 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:11:46,954 [INFO] [消息] chat=oc_93935e055f3039ca2cd4989f4fc8b82e text=不知道怎么玩了
+2026-05-01 15:11:47,122 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:11:51,949 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:12:51,698 [INFO] [消息] chat=oc_de8cadb30bd8cab1d0f5b927336baf5a text=你是谁？
+2026-05-01 15:12:51,876 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:12:54,066 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:13:57,980 [INFO] [消息] chat=oc_93935e055f3039ca2cd4989f4fc8b82e text=底层模型是什么
+2026-05-01 15:13:58,397 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:14:01,332 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:15:53,573 [INFO] [消息] chat=oc_93935e055f3039ca2cd4989f4fc8b82e text=我想射
+2026-05-01 15:15:53,734 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:15:57,890 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:16:47,165 [INFO] [消息] chat=oc_93935e055f3039ca2cd4989f4fc8b82e text=输出到飞书上的格式为什么没有显示出来呢
+2026-05-01 15:16:47,307 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+2026-05-01 15:16:51,740 [INFO] HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"

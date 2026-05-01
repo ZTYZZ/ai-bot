@@ -1,8 +1,10 @@
 import json
+import os
 import requests
 import threading
 import time
 import logging
+from flask import Flask
 
 from config import (
     FEISHU_APP_ID,
@@ -258,8 +260,15 @@ def on_message(event: P2ImMessageReceiveV1):
     threading.Thread(target=process, daemon=True).start()
 
 
-def main():
-    # 构建事件处理器
+# Flask 健康检查（Render 等平台需要监听端口）
+health_app = Flask(__name__)
+
+@health_app.route("/")
+def health():
+    return "AI Master Bot is running."
+
+
+def start_ws_client():
     handler = (
         EventDispatcherHandler
         .builder(FEISHU_ENCRYPT_KEY or "", FEISHU_VERIFY_TOKEN)
@@ -267,7 +276,6 @@ def main():
         .build()
     )
 
-    # 创建长连接客户端
     client = WSClient(
         app_id=FEISHU_APP_ID,
         app_secret=FEISHU_APP_SECRET,
@@ -276,15 +284,23 @@ def main():
         auto_reconnect=True,
     )
 
-    logger.info("🚀 AI 助手启动中，正在连接飞书长连接...")
+    logger.info("长连接客户端启动中...")
+    client.start()
+
+
+def main():
     print("=" * 50)
-    print("  🤖 AI 助手已启动")
-    print("  使用长连接模式，无需公网地址")
-    print("  在飞书中给你的机器人发消息吧！")
-    print("  按 Ctrl+C 停止")
+    print("  🤖 AI 助手启动中...")
     print("=" * 50)
 
-    client.start()
+    # 启动长连接客户端（后台线程）
+    ws_thread = threading.Thread(target=start_ws_client, daemon=True)
+    ws_thread.start()
+
+    # Flask 监听端口（供云平台健康检查）
+    port = int(os.getenv("PORT", 8080))
+    logger.info(f"健康检查端口: {port}")
+    health_app.run(host="0.0.0.0", port=port, debug=False)
 
 
 # 为了兼容旧配置
