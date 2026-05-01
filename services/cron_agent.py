@@ -121,7 +121,7 @@ def run_autonomy_check(memory, feishu_client) -> str:
 
     actions = []
 
-    for iteration in range(3):
+    for iteration in range(5):
         response = client.chat.completions.create(
             model=DEEPSEEK_MODEL,
             messages=messages,
