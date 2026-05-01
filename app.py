@@ -404,6 +404,19 @@ def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_typ
         send_message(receive_id, receive_id_type, tutorial)
         return True
 
+    # === /reset ===
+    if text in ["/reset", "/重置"]:
+        # 清空所有数据
+        memory.conn.execute("DELETE FROM conversations")
+        memory.conn.execute("DELETE FROM rules")
+        memory.conn.execute("DELETE FROM users")
+        memory.conn.execute("DELETE FROM long_term_memory")
+        memory.conn.commit()
+        processed_events.clear()
+        debug("所有数据已清空")
+        send_message(receive_id, receive_id_type, "主人，所有数据已清空，回到初始状态。下一个发消息的人将自动成为主人。")
+        return True
+
     return False
 
 
