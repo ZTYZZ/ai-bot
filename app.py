@@ -552,12 +552,21 @@ def handle_raw_event(event: dict):
     if not receive_id:
         return
 
-    # 注册/获取用户
+    # 注册/获取用户。第一个说话的人自动成为主人
     if sender_id:
         user = memory.get_or_create_user(sender_id)
-        if not user["name"] and not user["role"]:
-            # 首次见面，更新 open_id
-            pass
+        # 如果还没有主人，当前用户自动成为主人
+        existing_master = memory.get_user_by_role("主人")
+        if not existing_master and not user["role"]:
+            memory.set_user(sender_id, name="主人", role="主人")
+            debug(f"自动任命主人: {sender_id[:12]}")
+        # 非主人发消息时提示
+        if user["role"] != "主人":
+            has_master = memory.get_user_by_role("主人")
+            if has_master and not user["role"]:
+                debug(f"非主人消息被忽略: {sender_id[:12]}")
+                send_message(receive_id, receive_id_type, "抱歉，我只听主人的指令。")
+                return
 
     try:
         content = json.loads(message.get("content", "{}"))

@@ -100,6 +100,17 @@ class Memory:
         """获取用户信息"""
         return self.get_or_create_user(open_id)
 
+    def get_user_by_role(self, role: str) -> dict:
+        """按角色查找用户"""
+        cursor = self.conn.execute(
+            "SELECT open_id, name, role, notes FROM users WHERE role = ? LIMIT 1",
+            (role,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {"open_id": row[0], "name": row[1], "role": row[2], "notes": row[3]}
+        return {}
+
     def get_user_by_name(self, name: str) -> dict:
         """按名字查找用户"""
         cursor = self.conn.execute(
