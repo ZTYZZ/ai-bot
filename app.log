@@ -1,0 +1,9 @@
+2026-05-01 14:42:24,253 [INFO] 🚀 AI 助手启动中，正在连接飞书长连接...
+==================================================
+  🤖 AI 助手已启动
+  使用长连接模式，无需公网地址
+  在飞书中给你的机器人发消息吧！
+  按 Ctrl+C 停止
+==================================================
+[Lark] [2026-05-01 14:42:24,523] [INFO] connected to wss://msg-frontier.feishu.cn/ws/v2?fpid=493&aid=552564&device_id=7634810042361679076&access_key=0eb1a03bbf952ccda4c6d46dfdcb4007&service_id=33554678&ticket=c73c5251-dd88-488e-b855-b2d62c558e21 [conn_id=7634810042361679076]
+2026-05-01 14:42:24,523 [INFO] connected to wss://msg-frontier.feishu.cn/ws/v2?fpid=493&aid=552564&device_id=7634810042361679076&access_key=0eb1a03bbf952ccda4c6d46dfdcb4007&service_id=33554678&ticket=c73c5251-dd88-488e-b855-b2d62c558e21 [conn_id=7634810042361679076]

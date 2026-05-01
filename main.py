@@ -1,8 +1,8 @@
 import json
 import requests
 import threading
-import urllib.parse
-from flask import Flask, request, jsonify
+import time
+import logging
 
 from config import (
     FEISHU_APP_ID,
@@ -12,16 +12,28 @@ from config import (
 from memory import Memory
 from ai_client import chat, extract_entities
 
-app = Flask(__name__)
+from lark_oapi.ws import Client as WSClient
+from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
+from lark_oapi.api.im.v1.model.p2_im_message_receive_v1 import P2ImMessageReceiveV1
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
 memory = Memory()
 processed_events = set()
 
-# 飞书 API 基础
 FEISHU_BASE = "https://open.feishu.cn/open-apis"
+
+# Token 缓存
+_token = {"value": None, "expire": 0}
 
 
 def get_tenant_token():
-    """获取 tenant_access_token"""
+    """获取 tenant_access_token（带缓存）"""
+    now = time.time()
+    if _token["value"] and now < _token["expire"]:
+        return _token["value"]
+
     url = f"{FEISHU_BASE}/auth/v3/tenant_access_token/internal"
     resp = requests.post(url, json={
         "app_id": FEISHU_APP_ID,
@@ -30,36 +42,9 @@ def get_tenant_token():
     data = resp.json()
     if data.get("code") != 0:
         raise Exception(f"获取 token 失败: {data}")
-    return data["tenant_access_token"]
-
-
-def get_message_content(message_id: str, token: str) -> str:
-    """获取消息的原始内容（处理 @ 提及）"""
-    url = f"{FEISHU_BASE}/im/v1/messages/{message_id}"
-    resp = requests.get(url, headers={
-        "Authorization": f"Bearer {token}",
-    }, timeout=10)
-    data = resp.json()
-    if data.get("code") != 0:
-        return ""
-
-    items = data.get("data", {}).get("items", [])
-    for item in items:
-        body = item.get("body", {})
-        content = body.get("content", "")
-        # 解析 JSON 内容
-        try:
-            parsed = json.loads(content)
-            if isinstance(parsed, dict):
-                text = parsed.get("text", "")
-                # 去掉 @ 提及
-                if isinstance(text, str) and "@" in text:
-                    # 简单处理：提取纯文本
-                    text = text.strip()
-                return text
-        except (json.JSONDecodeError, TypeError):
-            return content
-    return ""
+    _token["value"] = data["tenant_access_token"]
+    _token["expire"] = now + data.get("expire", 3600) - 300
+    return _token["value"]
 
 
 def send_message(receive_id: str, receive_id_type: str, content: str):
@@ -80,37 +65,8 @@ def send_message(receive_id: str, receive_id_type: str, content: str):
     return resp.json()
 
 
-def send_card(receive_id: str, receive_id_type: str, title: str, content: str):
-    """发送卡片消息"""
-    token = get_tenant_token()
-    url = f"{FEISHU_BASE}/im/v1/messages"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    card = {
-        "header": {
-            "title": {"tag": "plain_text", "content": title},
-            "template": "blue",
-        },
-        "elements": [
-            {"tag": "markdown", "content": content}
-        ],
-    }
-    payload = {
-        "receive_id": receive_id,
-        "msg_type": "interactive",
-        "content": json.dumps(card, ensure_ascii=False),
-    }
-    resp = requests.post(url, headers=headers, json=payload,
-                         params={"receive_id_type": receive_id_type}, timeout=10)
-    return resp.json()
-
-
 def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_type: str) -> bool:
-    """
-    处理指令型消息。返回 True 表示是指令并已处理。
-    """
+    """处理指令型消息。返回 True 表示是指令并已处理。"""
     text = user_text.strip()
 
     # === /rule add <规则> ===
@@ -122,7 +78,7 @@ def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_typ
                          f"好的主人，已经记住这条规则了 (编号 #{rule_id})：\n「{rule_content}」")
         return True
 
-    # === /rule list / 规则列表 ===
+    # === /rule list ===
     if text in ["/rule list", "/规则 list", "/rule", "/规则"]:
         all_rules = memory.get_rules("global") + memory.get_rules(chat_id)
         if not all_rules:
@@ -158,13 +114,12 @@ def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_typ
                 send_message(receive_id, receive_id_type,
                              f"已记住主人：{key} = {value}")
             else:
-                # 单纯存储
                 memory.remember(chat_id, f"记忆_{len(memory.recall(chat_id)) + 1}", content)
                 send_message(receive_id, receive_id_type,
                              f"主人，我记住了：「{content}」")
         return True
 
-    # === /recall / 回忆 ===
+    # === /recall ===
     if text in ["/recall", "/回忆"]:
         mems = memory.recall(chat_id)
         if not mems:
@@ -193,17 +148,17 @@ def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_typ
     if text in ["/help", "/帮助", "/?"]:
         help_text = """主人，这些是您可以对我使用的指令：
 
-**🤖 调教/规则**
+🤖 调教/规则
 /rule add <规则> — 添加一条规则让我遵守
 /rule list — 查看所有规则
 /rule del <编号> — 删除指定规则
 
-**🧠 记忆**
+🧠 记忆
 /remember <内容> — 让我记住重要信息
 /recall — 查看我记住的信息
 /forget <key> — 忘记某条记忆
 
-**🔄 对话**
+🔄 对话
 /clear — 清除当前对话历史
 
 主人只要正常跟我聊天，我也会自动学习和记住你的偏好！"""
@@ -213,102 +168,127 @@ def handle_command(chat_id: str, user_text: str, receive_id: str, receive_id_typ
     return False
 
 
-def handle_event(event: dict):
-    """处理飞书事件"""
-    event_id = event.get("sender", {}).get("id", "") + "_" + (event.get("message", {}).get("message_id", ""))
+def on_message(event: P2ImMessageReceiveV1):
+    """处理接收到的消息事件（长连接回调）"""
+    event_data = event.event
+    if not event_data:
+        return
+
+    message = event_data.message
+    sender = event_data.sender
+
+    if not message or not sender:
+        return
+
+    # 生成去重 ID
+    event_id = f"{message.message_id}"
     if event_id in processed_events:
         return
     processed_events.add(event_id)
 
-    message = event.get("message", {})
-
     # 只处理文本消息
-    if message.get("message_type") != "text":
+    if message.message_type != "text":
         return
 
     # 确定回复目标
-    chat_type = message.get("chat_type")  # "p2p" 私聊 或 "group" 群聊
-    chat_id = message.get("chat_id", "")
+    chat_id = message.chat_id or ""
+    chat_type = message.chat_type
 
     if chat_type == "p2p":
-        sender = event.get("sender", {})
-        receive_id = sender.get("sender_id", {}).get("open_id")
+        receive_id = sender.sender_id.open_id if sender.sender_id else ""
         receive_id_type = "open_id"
     else:
         receive_id = chat_id
         receive_id_type = "chat_id"
 
-    # 获取消息内容
-    content = message.get("content", "{}")
+    if not receive_id:
+        return
+
+    # 解析消息内容
     try:
-        parsed = json.loads(content)
-        user_text = parsed.get("text", "")
+        content = json.loads(message.content or "{}")
+        user_text = content.get("text", "")
     except (json.JSONDecodeError, TypeError):
         return
 
-    if not user_text.strip():
+    # 去除 @ 机器人的部分
+    if "@" in user_text:
+        import re
+        user_text = re.sub(r'@_user_\d+\s*', '', user_text).strip()
+        user_text = re.sub(r'@\S+\s*', '', user_text).strip()
+
+    if not user_text:
         return
 
-    print(f"[消息] chat={chat_id} text={user_text[:100]}")
+    logger.info(f"[消息] chat={chat_id} text={user_text[:100]}")
 
-    # 先判断是否是指令
-    if handle_command(chat_id, user_text, receive_id, receive_id_type):
-        return
+    # 在线程中处理（避免阻塞长连接心跳）
+    def process():
+        # 先判断是否指令
+        if handle_command(chat_id, user_text, receive_id, receive_id_type):
+            return
 
-    # 非指令：调用 AI，同时自动提取长期记忆
-    try:
-        reply = chat(chat_id, user_text, memory)
+        # 调用 AI
+        try:
+            reply = chat(chat_id, user_text, memory)
+            key, value = extract_entities(user_text)
+            if key and value:
+                memory.remember(chat_id, key, value)
+        except Exception as e:
+            reply = f"主人抱歉，我出错了：{str(e)}"
+            logger.error(f"AI 调用失败: {e}")
 
-        # 自动提取并存储长期记忆
-        key, value = extract_entities(user_text)
-        if key and value:
-            memory.remember(chat_id, key, value)
-
-    except Exception as e:
-        reply = f"主人抱歉，我出错了：{str(e)}"
-        print(f"[错误] {e}")
-
-    # 回复消息（飞书单条限 30000 字节，太长分段）
-    if len(reply.encode("utf-8")) > 28000:
-        chunks = []
-        current = ""
-        for line in reply.split("\n"):
-            if len((current + line).encode("utf-8")) > 28000:
+        # 回复（飞书单条限 30000 字节）
+        if len(reply.encode("utf-8")) > 28000:
+            chunks = []
+            current = ""
+            for line in reply.split("\n"):
+                if len((current + line).encode("utf-8")) > 28000:
+                    chunks.append(current)
+                    current = line + "\n"
+                else:
+                    current += line + "\n"
+            if current:
                 chunks.append(current)
-                current = line + "\n"
-            else:
-                current += line + "\n"
-        if current:
-            chunks.append(current)
-        for chunk in chunks:
-            send_message(receive_id, receive_id_type, chunk)
-    else:
-        send_message(receive_id, receive_id_type, reply)
+            for chunk in chunks:
+                send_message(receive_id, receive_id_type, chunk)
+        else:
+            send_message(receive_id, receive_id_type, reply)
+
+    threading.Thread(target=process, daemon=True).start()
 
 
-# ========== Flask 路由 ==========
+def main():
+    # 构建事件处理器
+    handler = (
+        EventDispatcherHandler
+        .builder(FEISHU_ENCRYPT_KEY or "", FEISHU_VERIFY_TOKEN)
+        .register_p2_im_message_receive_v1(on_message)
+        .build()
+    )
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    body = request.get_json()
+    # 创建长连接客户端
+    client = WSClient(
+        app_id=FEISHU_APP_ID,
+        app_secret=FEISHU_APP_SECRET,
+        event_handler=handler,
+        domain="https://open.feishu.cn",
+        auto_reconnect=True,
+    )
 
-    # URL 验证
-    if "challenge" in body:
-        return jsonify({"challenge": body["challenge"]})
+    logger.info("🚀 AI 助手启动中，正在连接飞书长连接...")
+    print("=" * 50)
+    print("  🤖 AI 助手已启动")
+    print("  使用长连接模式，无需公网地址")
+    print("  在飞书中给你的机器人发消息吧！")
+    print("  按 Ctrl+C 停止")
+    print("=" * 50)
 
-    # 事件处理
-    event_type = body.get("header", {}).get("event_type", "")
-    if event_type == "im.message.receive_v1":
-        event = body.get("event", {})
-        threading.Thread(target=handle_event, args=(event,), daemon=True).start()
-
-    return jsonify({"code": 0})
+    client.start()
 
 
-@app.route("/", methods=["GET"])
-def index():
-    return "AI Master Bot is running."
-
+# 为了兼容旧配置
+FEISHU_ENCRYPT_KEY = ""
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    main()

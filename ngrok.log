@@ -1,0 +1,11 @@
+t=2026-05-01T14:33:37+0800 lvl=info msg="no configuration paths supplied"
+t=2026-05-01T14:33:37+0800 lvl=info msg="using configuration at default config path" path="/Users/zty/Library/Application Support/ngrok/ngrok.yml"
+t=2026-05-01T14:33:37+0800 lvl=info msg="open config file" path="/Users/zty/Library/Application Support/ngrok/ngrok.yml" err=nil
+t=2026-05-01T14:33:37+0800 lvl=info msg="FIPS 140 mode" enabled=false
+t=2026-05-01T14:33:37+0800 lvl=info msg="starting web service" obj=web addr=127.0.0.1:4040 allow_hosts=[]
+t=2026-05-01T14:33:39+0800 lvl=info msg="client session established" obj=tunnels.session
+t=2026-05-01T14:33:39+0800 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-05-01T14:33:39+0800 lvl=info msg="started tunnel" obj=tunnels name=command_line addr=http://localhost:8080 url=https://carrousel-headboard-squiggle.ngrok-free.dev
+t=2026-05-01T14:34:09+0800 lvl=info msg="join connections" obj=join id=628a552f2f06 l=127.0.0.1:8080 r=36.227.230.41:4921
+t=2026-05-01T14:41:38+0800 lvl=info msg="received stop request" obj=app stopReq="{err:<nil> restart:false}"
+t=2026-05-01T14:41:38+0800 lvl=info msg="session closing" obj=tunnels.session err=nil
