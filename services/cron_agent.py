@@ -122,13 +122,15 @@ def run_autonomy_check(memory, feishu_client) -> str:
     actions = []
 
     for iteration in range(5):
+        is_last = (iteration == 4)
+
         response = client.chat.completions.create(
             model=DEEPSEEK_MODEL,
             messages=messages,
             temperature=0.7,
             max_tokens=2000,
-            tools=tdefs if tdefs else None,
-            tool_choice="auto" if tdefs else None,
+            tools=(tdefs if tdefs and not is_last else None),
+            tool_choice=("none" if is_last else ("auto" if tdefs else None)),
         )
 
         msg = response.choices[0].message

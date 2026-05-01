@@ -163,31 +163,30 @@ def chat(chat_id: str, user_text: str, memory: Memory, tool_executor=None, sende
 
     _tdefs = get_tool_definitions()
 
-    # 最多循环 3 轮工具调用
+    # 最多 5 轮工具调用，最后一轮强制文字回复
     for iteration in range(5):
+        is_last = (iteration == 4)
+
         response = client.chat.completions.create(
             model=DEEPSEEK_MODEL,
             messages=messages,
             temperature=0.7,
             max_tokens=2000,
-            tools=_tdefs if _tdefs else None,
-            tool_choice="auto" if _tdefs else None,
+            tools=(_tdefs if _tdefs and not is_last else None),
+            tool_choice=("none" if is_last else ("auto" if _tdefs else None)),
         )
 
         msg = response.choices[0].message
 
-        # 无工具调用 → 正常回复
+        # 无工具调用（或最后一轮强制无工具）→ 正常回复
         if not msg.tool_calls:
             reply = msg.content or ""
             memory.save_message(chat_id, "user", user_text)
             memory.save_message(chat_id, "assistant", reply)
             return ("text", reply)
 
-        # 有工具调用
-        # 确定使用哪个执行器
+        # 有工具调用 → 执行后继续循环
         executor = tool_executor if tool_executor else registry_execute_tool
-
-        # 将 AI 的 tool_calls 响应加入消息
         messages.append(msg.model_dump())
 
         for tc in msg.tool_calls:
@@ -206,7 +205,7 @@ def chat(chat_id: str, user_text: str, memory: Memory, tool_executor=None, sende
                 "content": str(result),
             })
 
-    # 超过最大循环次数
+    # 安全兜底（理论上不会到达这里，因为第5轮强制 tool_choice="none"）
     reply = "主人抱歉，处理您的请求时遇到了问题。"
     memory.save_message(chat_id, "user", user_text)
     memory.save_message(chat_id, "assistant", reply)
