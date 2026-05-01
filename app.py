@@ -21,16 +21,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# 初始化依赖（模块级别，供 tools 懒加载访问）
-# ============================================================
-memory = Memory()
-feishu_client = FeishuClient()
-tool_ctx.set_memory(memory)
-tool_ctx.set_feishu_client(feishu_client)
-command_handler = CommandHandler(memory, feishu_client)
-event_handler = EventHandler(memory, feishu_client, command_handler, debug_func=debug)
-
 # 调试日志
+# ============================================================
 _debug_logs = []  # type: list
 
 
@@ -42,6 +34,17 @@ def debug(msg: str):
     if len(_debug_logs) > 50:
         _debug_logs.pop(0)
     logger.info(msg)
+
+
+# ============================================================
+# 初始化依赖（模块级别，供 tools 懒加载访问）
+# ============================================================
+memory = Memory()
+feishu_client = FeishuClient()
+tool_ctx.set_memory(memory)
+tool_ctx.set_feishu_client(feishu_client)
+command_handler = CommandHandler(memory, feishu_client)
+event_handler = EventHandler(memory, feishu_client, command_handler, debug_func=debug)
 
 
 # ============================================================
