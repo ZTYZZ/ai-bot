@@ -640,6 +640,17 @@ def handle_raw_event(event: dict):
 
 ━━━ 现在，请吩咐。"""
             send_message(receive_id, receive_id_type, welcome)
+        # /reset 任何人均可执行（用于恢复初始状态）
+        if user_text.strip() in ["/reset", "/重置"]:
+            memory.conn.execute("DELETE FROM conversations")
+            memory.conn.execute("DELETE FROM rules")
+            memory.conn.execute("DELETE FROM users")
+            memory.conn.execute("DELETE FROM long_term_memory")
+            memory.conn.commit()
+            processed_events.clear()
+            send_message(receive_id, receive_id_type, "已清空所有数据，回到初始状态。下一个发消息的人将自动成为主人。")
+            return
+
         # 非主人发消息时忽略
         if user["role"] != "主人" and memory.get_user_by_role("主人"):
             debug(f"非主人消息被忽略: {sender_id[:12]}")
