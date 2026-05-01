@@ -15,6 +15,7 @@ from db.memory import Memory
 from services.feishu_client import FeishuClient
 from handlers.commands import CommandHandler
 from handlers.events import EventHandler
+import tools.context as tool_ctx
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 # ============================================================
 memory = Memory()
 feishu_client = FeishuClient()
+tool_ctx.set_memory(memory)
+tool_ctx.set_feishu_client(feishu_client)
 command_handler = CommandHandler(memory, feishu_client)
 event_handler = EventHandler(memory, feishu_client, command_handler)
 

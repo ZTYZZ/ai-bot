@@ -1,16 +1,6 @@
 """用户相关工具 — 查看已注册用户、查询飞书用户信息、列出租户用户"""
-import json
 from tools.registry import register
-
-
-def _get_memory():
-    import app
-    return app.memory
-
-
-def _get_feishu_client():
-    import app
-    return app.feishu_client
+from tools.context import get_memory, get_feishu_client
 
 
 @register(
@@ -19,7 +9,7 @@ def _get_feishu_client():
     parameters={"type": "object", "properties": {}},
 )
 def list_known_users(args: dict) -> str:
-    memory = _get_memory()
+    memory = get_memory()
     users = memory.list_users()
     if not users:
         return "暂无已注册用户。让需要管理的人给机器人发一条消息，然后用 /setuser 命令注册。"
@@ -50,13 +40,13 @@ def get_user_info(args: dict) -> str:
     if not user_name:
         return "请指定要查询的用户名字。"
 
-    memory = _get_memory()
+    memory = get_memory()
     user = memory.get_user_by_name(user_name)
 
     if not user:
         return f"找不到已注册用户「{user_name}」。请先用 /setuser 注册该用户。"
 
-    client = _get_feishu_client()
+    client = get_feishu_client()
     result = client.get_user_info(user["open_id"])
 
     if result.get("code") != 0:
@@ -95,7 +85,7 @@ def get_user_info(args: dict) -> str:
 def list_tenant_users(args: dict) -> str:
     page_size = args.get("page_size", 50)
 
-    client = _get_feishu_client()
+    client = get_feishu_client()
     result = client.list_tenant_users(page_size=page_size)
 
     if result.get("code") != 0:
@@ -106,7 +96,7 @@ def list_tenant_users(args: dict) -> str:
         return "租户下暂无用户。"
 
     lines = [f"租户用户列表（共 {len(users)} 人）："]
-    for u in users[:30]:  # 限制输出前30条
+    for u in users[:30]:
         name = u.get("name", "未命名")
         job = u.get("job_title", "")
         dept = f" - {job}" if job else ""

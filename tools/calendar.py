@@ -1,16 +1,6 @@
 """日历工具 — 创建和查看日历事件"""
-from datetime import datetime
 from tools.registry import register
-
-
-def _get_memory():
-    import app
-    return app.memory
-
-
-def _get_feishu_client():
-    import app
-    return app.feishu_client
+from tools.context import get_feishu_client, get_memory
 
 
 @register(
@@ -48,7 +38,7 @@ def create_calendar_event(args: dict) -> str:
     if not summary or not start_time or not end_time:
         return "创建日历事件需要提供 summary、start_time 和 end_time 参数。"
 
-    client = _get_feishu_client()
+    client = get_feishu_client()
     result = client.create_calendar_event(
         summary=summary,
         start_time=start_time,
@@ -84,7 +74,7 @@ def list_calendar_events(args: dict) -> str:
     start_time = args.get("start_time", "")
     end_time = args.get("end_time", "")
 
-    client = _get_feishu_client()
+    client = get_feishu_client()
     result = client.list_calendar_events(
         start_time=start_time,
         end_time=end_time,
@@ -101,10 +91,7 @@ def list_calendar_events(args: dict) -> str:
     for e in events[:20]:
         summary = e.get("summary", "无标题")
         st = e.get("start_time", {})
-        if isinstance(st, dict):
-            st_str = st.get("timestamp", st.get("date", "?"))
-        else:
-            st_str = str(st)
+        st_str = st.get("timestamp", st.get("date", "?")) if isinstance(st, dict) else str(st)
         lines.append(f"- {summary} (开始: {st_str})")
 
     if len(events) > 20:

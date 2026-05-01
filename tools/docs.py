@@ -1,10 +1,6 @@
 """文档与表格工具 — 创建文档、查询电子表格"""
 from tools.registry import register
-
-
-def _get_feishu_client():
-    import app
-    return app.feishu_client
+from tools.context import get_feishu_client
 
 
 @register(
@@ -32,7 +28,7 @@ def create_doc(args: dict) -> str:
 
     folder_token = args.get("folder_token", "")
 
-    client = _get_feishu_client()
+    client = get_feishu_client()
     result = client.create_doc(title=title, folder_token=folder_token)
 
     if result.get("code") == 0:
@@ -61,7 +57,7 @@ def query_sheet_data(args: dict) -> str:
     if not spreadsheet_token:
         return "请提供电子表格的 spreadsheet_token。"
 
-    client = _get_feishu_client()
+    client = get_feishu_client()
     result = client.query_sheet_data(spreadsheet_token=spreadsheet_token)
 
     if result.get("code") != 0:

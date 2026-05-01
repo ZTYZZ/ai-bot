@@ -1,15 +1,6 @@
 """任务工具 — 创建和查看飞书任务"""
 from tools.registry import register
-
-
-def _get_memory():
-    import app
-    return app.memory
-
-
-def _get_feishu_client():
-    import app
-    return app.feishu_client
+from tools.context import get_memory, get_feishu_client
 
 
 @register(
@@ -49,7 +40,7 @@ def create_task(args: dict) -> str:
 
     member_open_ids = []
     if assignee_name:
-        memory = _get_memory()
+        memory = get_memory()
         user = memory.get_user_by_name(assignee_name)
         if not user:
             known = ", ".join(
@@ -58,7 +49,7 @@ def create_task(args: dict) -> str:
             return f"找不到用户「{assignee_name}」。已知用户：{known or '暂无'}。请先用 /setuser 注册。"
         member_open_ids.append(user["open_id"])
 
-    client = _get_feishu_client()
+    client = get_feishu_client()
     result = client.create_task(
         summary=summary,
         description=description,
@@ -91,7 +82,7 @@ def create_task(args: dict) -> str:
 def list_tasks(args: dict) -> str:
     completed = args.get("completed", None)
 
-    client = _get_feishu_client()
+    client = get_feishu_client()
     result = client.list_tasks(completed=completed)
 
     if result.get("code") != 0:
@@ -105,14 +96,14 @@ def list_tasks(args: dict) -> str:
     lines = ["任务列表："]
     for t in tasks[:20]:
         summary = t.get("summary", "无标题")
-        status_icon = "✅" if t.get("completed") else "⬜"
+        status_icon = "完成" if t.get("completed") else "待办"
         due = t.get("due", {})
         due_str = ""
         if isinstance(due, dict) and due.get("timestamp"):
             due_str = f" (截止: {due['timestamp']})"
         elif due:
             due_str = f" (截止: {due})"
-        lines.append(f"  {status_icon} {summary}{due_str}")
+        lines.append(f"  [{status_icon}] {summary}{due_str}")
 
     if len(tasks) > 20:
         lines.append(f"  ... 还有 {len(tasks) - 20} 个任务")

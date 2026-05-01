@@ -1,17 +1,6 @@
 """消息发送工具"""
 from tools.registry import register
-
-
-# 延迟导入，避免循环依赖
-def _get_memory():
-    from db.memory import Memory
-    import app
-    return app.memory
-
-
-def _get_feishu_client():
-    import app
-    return app.feishu_client
+from tools.context import get_memory, get_feishu_client
 
 
 @register(
@@ -42,7 +31,7 @@ def send_message_to_user(args: dict) -> str:
     if not msg_content:
         return "错误：请指定要发送的消息内容。"
 
-    memory = _get_memory()
+    memory = get_memory()
     target = memory.get_user_by_name(target_name)
 
     if not target:
@@ -51,7 +40,7 @@ def send_message_to_user(args: dict) -> str:
         )
         return f"错误：找不到用户「{target_name}」。已知用户：{known or '暂无'}"
 
-    client = _get_feishu_client()
+    client = get_feishu_client()
     result = client.send_text_message(target["open_id"], "open_id", msg_content)
 
     if result.get("code") == 0:
