@@ -32,13 +32,17 @@ def send_message_to_user(args: dict) -> str:
         return "错误：请指定要发送的消息内容。"
 
     memory = get_memory()
+
+    # 先按名字查，再按 open_id 查
     target = memory.get_user_by_name(target_name)
+    if not target and target_name.startswith("ou_"):
+        target = memory.get_user(target_name)
 
     if not target:
         known = ", ".join(
             u["name"] for u in memory.list_users() if u["name"]
         )
-        return f"错误：找不到用户「{target_name}」。已知用户：{known or '暂无'}"
+        return f"错误：找不到用户「{target_name}」。已知用户：{known or '暂无'}。如果是 open_id，请确认该用户已被 /setuser 注册。"
 
     client = get_feishu_client()
     result = client.send_text_message(target["open_id"], "open_id", msg_content)
