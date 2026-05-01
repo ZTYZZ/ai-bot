@@ -1,0 +1,16 @@
+name: 定时巡航
+
+on:
+  schedule:
+    # 每小时第7分钟触发（避免整点拥堵）
+    - cron: "7 * * * *"
+  workflow_dispatch: {}  # 允许手动触发
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 触发 AI 自主巡航
+        run: |
+          curl -s "https://diao-jiao-da-shi.onrender.com/cron" | tee /tmp/cron_result
+          echo ""
