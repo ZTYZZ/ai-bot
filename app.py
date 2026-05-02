@@ -10,6 +10,8 @@ from config import (
     FEISHU_APP_SECRET,
     FEISHU_VERIFY_TOKEN,
     DEEPSEEK_API_KEY,
+    QQ_APP_ID,
+    QQ_APP_SECRET,
 )
 from db.memory import Memory
 from services.feishu_client import FeishuClient
@@ -110,28 +112,44 @@ def cron_check():
         return jsonify({"code": -1, "error": str(e)})
 
 
-@app.route("/qq_webhook", methods=["POST"])
+@app.route("/qq_webhook", methods=["GET", "POST"])
 def qq_webhook():
     """QQ 机器人 Webhook 接收端点"""
-    body = request.get_json()
+    # Debug: log all incoming requests for verification troubleshooting
+    logger.info(f"[QQ_WEBHOOK] method={request.method}, headers={dict(request.headers)}, args={dict(request.args)}, body={request.get_data(as_text=True)[:500]}")
 
     # QQ Webhook 握手验证（op=10 Hello）
-    if body.get("op") == 10:
-        plain_token = body.get("d", {}).get("plain_token", "")
-        # 简单验证：返回 plain_token
-        return jsonify({"plain_token": plain_token})
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
 
-    # QQ Webhook 回调验证（op=13）
-    if body.get("op") == 13:
-        return jsonify({"code": 0})
+        # op=10: Hello (WebSocket 握手包，验证 URL 时平台可能发这个)
+        if body.get("op") == 10:
+            plain_token = body.get("d", {}).get("plain_token", "")
+            logger.info(f"[QQ_WEBHOOK] op=10 plain_token={plain_token}")
+            return jsonify({"plain_token": plain_token})
 
-    # 事件处理（op=0）
-    if body.get("op") == 0:
-        threading.Thread(
-            target=_safe_handle_qq,
-            args=(body,),
-            daemon=True,
-        ).start()
+        # op=13: 回调地址验证
+        if body.get("op") == 13:
+            d = body.get("d", {})
+            plain_token = d.get("plain_token", "")
+            event_ts = d.get("event_ts", "")
+            # 计算签名：使用 AppSecret 对 plain_token + event_ts 做 HMAC-SHA256
+            import hmac as _hmac
+            sig = _hmac.new(
+                QQ_APP_SECRET.encode("utf-8") if QQ_APP_SECRET else b"",
+                f"{plain_token}{event_ts}".encode("utf-8"),
+                "sha256",
+            ).hexdigest()
+            logger.info(f"[QQ_WEBHOOK] op=13 plain_token={plain_token[:20]} sig={sig[:20]}")
+            return jsonify({"plain_token": plain_token, "signature": sig})
+
+        # 事件处理（op=0）
+        if body.get("op") == 0:
+            threading.Thread(
+                target=_safe_handle_qq,
+                args=(body,),
+                daemon=True,
+            ).start()
 
     return jsonify({"code": 0})
 
