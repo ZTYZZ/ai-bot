@@ -40,7 +40,10 @@ def list_known_users(args: dict) -> str:
     },
 )
 def save_rule(args: dict) -> str:
-    from tools.context import get_memory
+    from tools.context import get_memory, require_master
+    reject = require_master()
+    if reject:
+        return reject
     memory = get_memory()
     rule = args.get("rule", "")
     if not rule:
@@ -79,7 +82,10 @@ def list_rules(args: dict) -> str:
     },
 )
 def delete_rule(args: dict) -> str:
-    from tools.context import get_memory
+    from tools.context import get_memory, require_master
+    reject = require_master()
+    if reject:
+        return reject
     memory = get_memory()
     rule_id = args.get("rule_id")
     if not rule_id:
@@ -107,7 +113,10 @@ def delete_rule(args: dict) -> str:
     },
 )
 def remember_info(args: dict) -> str:
-    from tools.context import get_memory
+    from tools.context import get_memory, require_master
+    reject = require_master()
+    if reject:
+        return reject
     memory = get_memory()
     key = args.get("key", "")
     value = args.get("value", "")
@@ -132,7 +141,10 @@ def remember_info(args: dict) -> str:
     },
 )
 def forget_info(args: dict) -> str:
-    from tools.context import get_memory
+    from tools.context import get_memory, require_master
+    reject = require_master()
+    if reject:
+        return reject
     memory = get_memory()
     key = args.get("key", "")
     if not key:
@@ -160,7 +172,10 @@ def forget_info(args: dict) -> str:
     },
 )
 def set_user_role(args: dict) -> str:
-    from tools.context import get_memory
+    from tools.context import get_memory, require_master
+    reject = require_master()
+    if reject:
+        return reject
     memory = get_memory()
     user_name = args.get("user_name", "")
     role = args.get("role", "")
@@ -188,7 +203,10 @@ def set_user_role(args: dict) -> str:
     },
 )
 def get_asset_report(args: dict) -> str:
-    from tools.context import get_memory
+    from tools.context import get_memory, require_master
+    reject = require_master()
+    if reject:
+        return reject
     memory = get_memory()
     user_name = args.get("user_name", "")
     if not user_name:
@@ -355,7 +373,10 @@ def record_asset_event(args: dict) -> str:
     parameters={"type": "object", "properties": {}},
 )
 def compare_assets(args: dict) -> str:
-    from tools.context import get_memory
+    from tools.context import get_memory, require_master
+    reject = require_master()
+    if reject:
+        return reject
     memory = get_memory()
     profiles = memory.list_asset_profiles()
     users_map = memory.get_all_users_map()
@@ -408,7 +429,10 @@ def compare_assets(args: dict) -> str:
     },
 )
 def set_training_focus(args: dict) -> str:
-    from tools.context import get_memory
+    from tools.context import get_memory, require_master
+    reject = require_master()
+    if reject:
+        return reject
     memory = get_memory()
     user_name = args.get("user_name", "")
     focus = args.get("focus", "")
