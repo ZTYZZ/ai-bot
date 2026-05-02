@@ -22,7 +22,7 @@ from tools.context import get_memory, get_feishu_client, is_master
                 "description": "要发送的消息内容",
             },
         },
-        "required": ["content"],
+        "required": ["user_name", "content"],
     },
 )
 def send_message_to_user(args: dict) -> str:
