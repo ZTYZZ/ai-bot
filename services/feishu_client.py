@@ -308,7 +308,7 @@ class FeishuClient:
 
         if member_open_ids:
             body["members"] = [
-                {"id": oid, "type": "user"}
+                {"id": oid, "type": "user", "role": "assignee"}
                 for oid in member_open_ids if oid
             ]
 
