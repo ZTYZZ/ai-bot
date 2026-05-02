@@ -122,6 +122,24 @@ def cron_check():
         return jsonify({"code": -1, "error": str(e)})
 
 
+@app.route("/bind_qq_once")
+def bind_qq_once():
+    """一次性绑定 QQ 身份（部署后访问一次即可）"""
+    try:
+        results = []
+        # 主人：飞书 ou_90a4f71b6 → QQ B2A76444143B0CC0DAB8C76D407F047C
+        r1 = memory.bind_qq_to_user("ou_90a4f71b6", "B2A76444143B0CC0DAB8C76D407F047C")
+        results.append(f"主人绑定: {'成功' if r1 else '失败(找不到用户)'}")
+
+        # 贱狗天天：飞书 ou_9f8451598dc4ba5aca244846781c1b9f → QQ 10B173E5FB2EF6D26C93D78CC9A0FB3F
+        r2 = memory.bind_qq_to_user("ou_9f8451598dc4ba5aca244846781c1b9f", "10B173E5FB2EF6D26C93D78CC9A0FB3F")
+        results.append(f"贱狗天天绑定: {'成功' if r2 else '失败(找不到用户)'}")
+
+        return jsonify({"code": 0, "results": results})
+    except Exception as e:
+        return jsonify({"code": -1, "error": str(e)})
+
+
 @app.route("/qq_webhook", methods=["GET", "POST"])
 def qq_webhook():
     """QQ 机器人 Webhook 接收端点"""
