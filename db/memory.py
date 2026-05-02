@@ -313,21 +313,13 @@ class Memory:
             user = session.query(User).filter(User.open_id == open_id).first()
             if not user:
                 return False
-            # 如果 QQ ID 已被其他人绑定，先解绑
+            # 如果 QQ ID 已被其他人绑定，先解绑并 flush，避免 unique 冲突
             existing = session.query(User).filter(User.qq_id == qq_id).first()
             if existing and existing.id != user.id:
                 existing.qq_id = None
+                session.flush()  # 立即写库，释放旧占位
             # 绑定
             user.qq_id = qq_id
-            # 删除孤立 QQ 占位条目（无 open_id、无 role、同一 qq_id 的其他行）
-            orphan_count = session.query(User).filter(
-                User.qq_id == qq_id,
-                User.open_id == None,
-                User.role == "",
-                User.id != user.id,
-            ).delete(synchronize_session=False)
-            if orphan_count:
-                logger.info(f"清理了 {orphan_count} 个孤立 QQ 用户条目")
             session.commit()
             return True
         finally:
