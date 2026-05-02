@@ -287,13 +287,16 @@ class FeishuClient:
 
         try:
             resp = self._client.task.v2.task.create(req)
-            return {
-                "code": resp.code,
-                "msg": resp.msg,
-                "task_id": resp.data.task.id if resp.data and resp.data.task else None,
-            }
+            task_id = resp.data.task.id if resp.data and resp.data.task else None
+            if resp.code != 0:
+                logger.error(f"[Task] 创建失败: code={resp.code} msg={resp.msg}")
+                # 将详细错误信息返回，帮助排查
+                error_detail = f"code={resp.code}, msg={resp.msg}"
+                return {"code": resp.code, "msg": error_detail, "task_id": None}
+            return {"code": 0, "msg": "success", "task_id": task_id}
         except Exception as e:
-            logger.error(f"创建任务失败: {e}")
+            import traceback
+            logger.error(f"[Task] 创建异常: {traceback.format_exc()}")
             return {"code": -1, "msg": str(e), "task_id": None}
 
     def list_tasks(self, page_size: int = 20, page_token: str = "", completed: bool = None) -> dict:
