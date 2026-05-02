@@ -123,9 +123,34 @@ class Memory:
         # Auto-create tables on first run (idempotent)
         Base.metadata.create_all(self.engine)
 
+        # Auto-migrate: add any missing columns to existing tables
+        self._migrate()
+
         # Compatibility: expose a conn-like attribute for external use (e.g. /reset)
         # For raw SQL, use the engine directly.
         self.conn = self  # delegate to reset_all() / custom methods
+
+    def _migrate(self):
+        """Minimal auto-migration: add missing columns so deploys don't need manual SQL."""
+        is_pg = "postgresql" in str(self.engine.url) or "postgres" in str(self.engine.url)
+        with self.engine.connect() as conn:
+            if is_pg:
+                # qq_id column added for QQ bot integration
+                conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS qq_id VARCHAR UNIQUE"
+                )
+                # updated_at column added for user record tracking
+                conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()"
+                )
+            else:
+                # SQLite: ALTER TABLE ADD COLUMN IF NOT EXISTS is not supported
+                cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(users)").fetchall()]
+                if "qq_id" not in cols:
+                    conn.exec_driver_sql("ALTER TABLE users ADD COLUMN qq_id VARCHAR")
+                if "updated_at" not in cols:
+                    conn.exec_driver_sql("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            conn.commit()
 
     # ========== Conversation History ==========
 
