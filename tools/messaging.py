@@ -1,11 +1,11 @@
 """消息发送工具"""
 from tools.registry import register
-from tools.context import get_memory, get_feishu_client
+from tools.context import get_memory, get_feishu_client, is_master
 
 
 @register(
     name="send_message_to_user",
-    description="发送消息给指定名字的用户。当主人说「给XX发消息」「通知XX」「告诉XX」「让XX做什么」时使用此工具。",
+    description="发送消息给指定名字的用户。当主人说「给XX发消息」「通知XX」「告诉XX」「让XX做什么」时使用此工具。资产互动时也可用来向主人汇报重要情况。",
     parameters={
         "type": "object",
         "properties": {
@@ -32,6 +32,14 @@ def send_message_to_user(args: dict) -> str:
         return "错误：请指定要发送的消息内容。"
 
     memory = get_memory()
+
+    # 非主人只能发给主人（资产互动时汇报重要情况）
+    if not is_master():
+        master = memory.get_user_by_role("主人")
+        if not master:
+            return "错误：系统中没有主人。"
+        if target_name != (master.get("name", "") or "主人"):
+            return f"⛔ 你只能发送消息给主人「{master['name']}」，不能发给其他人。"
 
     # 先按名字查，再按 open_id 查
     target = memory.get_user_by_name(target_name)

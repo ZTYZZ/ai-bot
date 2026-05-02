@@ -258,25 +258,46 @@ class FeishuClient:
         """
         from lark_oapi.api.task.v2 import CreateTaskRequest, InputTask, Due, Member
 
-        body_builder = InputTask.builder().summary(summary)
+        # 清理 description（飞书可能不接受纯换行符或特殊字符）
+        safe_description = ""
         if description:
-            body_builder = body_builder.description(description)
+            desc = description.strip()
+            if len(desc) > 3000:
+                desc = desc[:3000]  # task v2 正文有长度限制
+            safe_description = desc
+
+        body_builder = InputTask.builder().summary(summary)
+        if safe_description:
+            body_builder = body_builder.description(safe_description)
 
         if due_date:
             try:
-                dt = datetime.fromisoformat(due_date)
-                ts_ms = int(dt.timestamp() * 1000)
-                due = Due.builder().timestamp(ts_ms).build()
-                body_builder = body_builder.due(due)
-            except ValueError:
+                # 支持多种日期格式
+                dt = None
+                for fmt in [None, "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y年%m月%d日",
+                           "%Y/%m/%d", "%Y-%m-%dT%H:%M", "%Y-%m-%d"]:
+                    try:
+                        if fmt:
+                            dt = datetime.strptime(due_date.strip(), fmt)
+                        else:
+                            dt = datetime.fromisoformat(due_date.strip())
+                        break
+                    except ValueError:
+                        continue
+                if dt:
+                    ts_ms = int(dt.timestamp() * 1000)
+                    due = Due.builder().timestamp(ts_ms).build()
+                    body_builder = body_builder.due(due)
+            except Exception:
                 pass
 
         if member_open_ids:
             members = [
                 Member.builder().id(oid).type("user").build()
-                for oid in member_open_ids
+                for oid in member_open_ids if oid
             ]
-            body_builder = body_builder.members(members)
+            if members:
+                body_builder = body_builder.members(members)
 
         req = (
             CreateTaskRequest.builder()
@@ -289,9 +310,15 @@ class FeishuClient:
             resp = self._client.task.v2.task.create(req)
             task_id = resp.data.task.id if resp.data and resp.data.task else None
             if resp.code != 0:
-                logger.error(f"[Task] 创建失败: code={resp.code} msg={resp.msg}")
-                # 将详细错误信息返回，帮助排查
-                error_detail = f"code={resp.code}, msg={resp.msg}"
+                # 提取详细字段校验信息
+                violations = ""
+                if resp.data and hasattr(resp.data, 'field_violations'):
+                    vios = getattr(resp.data, 'field_violations', []) or []
+                    if vios:
+                        parts = [f"{v.field}: {v.description}" for v in vios]
+                        violations = " | ".join(parts)
+                error_detail = f"code={resp.code}, msg={resp.msg}" + (f" [{violations}]" if violations else "")
+                logger.error(f"[Task] 创建失败: {error_detail}")
                 return {"code": resp.code, "msg": error_detail, "task_id": None}
             return {"code": 0, "msg": "success", "task_id": task_id}
         except Exception as e:
