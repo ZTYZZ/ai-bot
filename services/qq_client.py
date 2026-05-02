@@ -33,8 +33,9 @@ class QQClient:
                 timeout=10,
             )
             data = resp.json()
+            logger.info(f"[QQ] Token 响应: {json.dumps({k:v for k,v in data.items() if k != 'access_token'}, ensure_ascii=False)}")
             self._token = data.get("access_token", "")
-            expires_in = data.get("expires_in", 7200)
+            expires_in = int(data.get("expires_in", 7200))  # API 可能返回字符串
             self._token_expires_at = time.time() + expires_in
             logger.info(f"[QQ] Token 获取成功, expires_in={expires_in}s, token_len={len(self._token)}")
             self._debug(f"[QQ] Token: len={len(self._token)}, expires_in={expires_in}s, full_resp={json.dumps({k:v for k,v in data.items() if k != 'access_token'}, ensure_ascii=False)}")
