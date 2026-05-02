@@ -10,9 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 class EventHandler:
-    def __init__(self, memory, feishu_client, command_handler, debug_func=None):
+    def __init__(self, memory, feishu_client, command_handler, debug_func=None, qq_client=None):
         self.memory = memory
         self.client = feishu_client
+        self.qq = qq_client
         self.commands = command_handler
         self.processed_events = set()  # 去重
         self._debug = debug_func or (lambda m: logger.info(m))
@@ -158,6 +159,10 @@ class EventHandler:
             self._debug(f"AI 返回: type={resp_type}, data_len={len(str(resp_data))}")
             if resp_type == "text":
                 self._send_reply(receive_id, receive_id_type, resp_data)
+                # 跨平台：发送者绑定了 QQ 则同步推送
+                self._forward_to_qq(sender_id, resp_data)
+                # 资产消息 → 自动通知主人（不依赖 AI 自觉）
+                self._notify_master_on_asset_msg(sender_id, user_text, resp_data)
             elif resp_type == "tool_calls":
                 self._debug(f"AI 请求工具调用: {resp_data}")
 
@@ -288,3 +293,69 @@ class EventHandler:
                 send_one(chunk)
         else:
             send_one(reply)
+
+    def _forward_to_qq(self, sender_id: str, reply: str):
+        """如果发送者绑定了 QQ，同步推送回复到 QQ"""
+        if not self.qq:
+            return
+        user = self.memory.get_user(sender_id)
+        qq_id = user.get("qq_id", "")
+        if not qq_id:
+            return
+        try:
+            self._send_qq_chunks(qq_id, reply, is_group=False)
+        except Exception as e:
+            logger.warning(f"QQ 转发失败: {e}")
+
+    def _notify_master_on_asset_msg(self, sender_id: str, user_text: str, resp_data: str):
+        """资产发消息时，自动通知主人（应用层兜底，不依赖 AI 自觉调用工具）"""
+        user = self.memory.get_user(sender_id)
+        user_role = user.get("role", "")
+        if not user_role or user_role == "主人":
+            return  # 主人自己发消息不通知
+
+        master = self.memory.get_user_by_role("主人")
+        if not master:
+            return
+
+        user_name = user.get("name", sender_id[:12])
+        notify = f"📨 资产「{user_name}」发来消息\n\n💬 资产说：{user_text[:200]}\n\n🤖 我的回复：{resp_data[:300]}"
+
+        # 飞书通知主人
+        master_oid = master.get("open_id", "")
+        if master_oid:
+            try:
+                self.client.send_text_message(master_oid, "open_id", notify)
+                self._debug(f"已自动通知主人(飞书): {user_name}")
+            except Exception as e:
+                logger.warning(f"通知主人(飞书)失败: {e}")
+
+        # QQ 通知主人
+        master_qq = master.get("qq_id", "")
+        if self.qq and master_qq:
+            try:
+                self._send_qq_chunks(master_qq, notify, is_group=False)
+                self._debug(f"已自动通知主人(QQ): {user_name}")
+            except Exception as e:
+                logger.warning(f"通知主人(QQ)失败: {e}")
+
+    def _send_qq_chunks(self, qq_id: str, text: str, is_group: bool = False):
+        """通过 QQ 发送消息（自动分片，QQ 单条限制约 2000 字符）"""
+        if not self.qq:
+            return
+        max_len = 2000
+        if len(text) <= max_len:
+            self.qq.send_text_message(qq_id, text, is_group=is_group)
+        else:
+            chunks = []
+            current = ""
+            for line in text.split("\n"):
+                if len(current + line) > max_len:
+                    chunks.append(current)
+                    current = line + "\n"
+                else:
+                    current += line + "\n"
+            if current:
+                chunks.append(current)
+            for chunk in chunks:
+                self.qq.send_text_message(qq_id, chunk, is_group=is_group)

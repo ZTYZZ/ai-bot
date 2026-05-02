@@ -49,10 +49,11 @@ memory = Memory()
 
 # 一次性绑定 QQ 身份（部署即执行，失败不阻塞启动）
 try:
-    r1 = memory.bind_qq_to_user("ou_90a4f71b6", "B2A76444143B0CC0DAB8C76D407F047C")  # 主人
-    r2 = memory.bind_qq_to_user("ou_9f8451598dc4ba5aca244846781c1b9f", "10B173E5FB2EF6D26C93D78CC9A0FB3F")  # 贱狗天天
-    logger.info(f"QQ绑定: 主人={'OK' if r1 else 'FAIL(用户不存在)'}, 贱狗={'OK' if r2 else 'FAIL(用户不存在)'}")
-    debug(f"QQ绑定: 主人={'OK' if r1 else 'FAIL'}, 贱狗={'OK' if r2 else 'FAIL'}")
+    # 使用 set_user（upsert）而非 bind_qq_to_user，因为启动时用户记录可能还不存在
+    memory.set_user(open_id="ou_90a4f71b6", qq_id="B2A76444143B0CC0DAB8C76D407F047C")
+    memory.set_user(open_id="ou_9f8451598dc4ba5aca244846781c1b9f", qq_id="10B173E5FB2EF6D26C93D78CC9A0FB3F")
+    logger.info("QQ绑定: 已预写入 open_id ↔ QQ ID")
+    debug("QQ绑定: 已预写入 open_id ↔ QQ ID")
 except Exception as e:
     logger.warning(f"QQ绑定异常(非致命): {e}")
 
@@ -63,8 +64,8 @@ tool_ctx.set_memory(memory)
 tool_ctx.set_feishu_client(feishu_client)
 tool_ctx.set_qq_client(qq_client)
 command_handler = CommandHandler(memory, feishu_client)
-event_handler = EventHandler(memory, feishu_client, command_handler, debug_func=debug)
-qq_event_handler = QQEventHandler(memory, qq_client, debug_func=debug)
+event_handler = EventHandler(memory, feishu_client, command_handler, debug_func=debug, qq_client=qq_client)
+qq_event_handler = QQEventHandler(memory, qq_client, feishu_client=feishu_client, debug_func=debug)
 
 
 # ============================================================

@@ -9,9 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 class QQEventHandler:
-    def __init__(self, memory, qq_client, debug_func=None):
+    def __init__(self, memory, qq_client, feishu_client=None, debug_func=None):
         self.memory = memory
         self.qq = qq_client
+        self.feishu = feishu_client
         self.processed_events = set()
         self._debug = debug_func or (lambda m: logger.info(m))
 
@@ -93,27 +94,46 @@ class QQEventHandler:
 
             # 未注册且已有主人
             if not user_role and has_master:
-                # 检查主人是否已绑定 QQ — 如果没绑定，可能是主人本人
                 master_qq = master.get("qq_id", "")
                 if not master_qq:
+                    # 主人尚无 QQ 绑定 → 自动将此 QQ 绑定到主人
+                    master_oid = master.get("open_id", "")
+                    if master_oid:
+                        ok = self.memory.bind_qq_to_user(master_oid, sender_id)
+                        self._debug(f"[QQ] 自动绑定QQ到主人: {'OK' if ok else 'FAIL'} master_oid={master_oid[:16]} qq={sender_id[:12]}")
+                        if ok:
+                            # 重新获取用户身份（现在是主人了）
+                            user = self.memory.get_or_create_user_by_qq(sender_id)
+                            user_role = user.get("role", "")
+                            self.qq.send_text_message(
+                                receive_id,
+                                "✅ QQ 已自动绑定到你的主人身份。飞书和 QQ 现在共享同一身份。",
+                                is_group=is_group,
+                            )
+                        else:
+                            self.qq.send_text_message(
+                                receive_id,
+                                f"⚠️ 自动绑定失败。请先在飞书上给 AI 发一条消息以创建用户记录，然后重试。\n"
+                                f"你的 QQ ID：{sender_id}",
+                                is_group=is_group,
+                            )
+                            return
+                    else:
+                        self.qq.send_text_message(
+                            receive_id,
+                            f"⚠️ 系统异常：主人没有 open_id，无法绑定。",
+                            is_group=is_group,
+                        )
+                        return
+                else:
+                    # 主人已有 QQ 绑定，但不是这个人 → 拒绝
+                    self._debug(f"[QQ] 未注册用户被拒绝: {sender_id[:12]}")
                     self.qq.send_text_message(
                         receive_id,
-                        f"⚠️ 你的 QQ 尚未绑定到主人身份。\n"
-                        f"你的 QQ ID 是：{sender_id}\n\n"
-                        f"请在飞书上对 AI 说：「绑定QQ：{sender_id}」\n"
-                        f"绑定后，飞书和 QQ 将共享同一身份、任务和记录。",
+                        f"抱歉，我只听主人的指令。\n你的 QQ ID 是：{sender_id}\n请将 ID 发给主人注册。",
                         is_group=is_group,
                     )
-                    self._debug(f"[QQ] 未绑定 QQ 尝试访问: {sender_id[:12]}，主人尚无 QQ 绑定")
                     return
-
-                self._debug(f"[QQ] 未注册用户被拒绝: {sender_id[:12]}")
-                self.qq.send_text_message(
-                    receive_id,
-                    f"抱歉，我只听主人的指令。\n你的 QQ ID 是：{sender_id}\n请将 ID 发给主人注册。",
-                    is_group=is_group,
-                )
-                return
 
             # /reset 命令
             if user_text.strip() in ["/reset", "/重置"]:
@@ -138,6 +158,10 @@ class QQEventHandler:
             self._debug(f"[QQ] AI 返回: type={resp_type}")
             if resp_type == "text":
                 self._send_qq_reply(receive_id, resp_data, is_group)
+                # 跨平台：用户绑定了飞书则同步推送
+                self._forward_to_feishu(user, resp_data)
+                # 资产消息 → 自动通知主人
+                self._notify_master_on_asset_msg(sender_id, user, user_text, resp_data)
 
         except Exception as e:
             import traceback
@@ -164,3 +188,47 @@ class QQEventHandler:
             for chunk in chunks:
                 result = self.qq.send_text_message(receive_id, chunk, is_group=is_group)
                 self._debug(f"[QQ] 发送结果: code={result.get('code')}, msg={result.get('msg', '')[:80]}")
+
+    def _forward_to_feishu(self, user: dict, reply: str):
+        """如果 QQ 用户绑定了飞书，同步推送回复到飞书"""
+        if not self.feishu:
+            return
+        feishu_oid = user.get("open_id", "")
+        if not feishu_oid:
+            return
+        try:
+            self.feishu.send_text_message(feishu_oid, "open_id", reply)
+            self._debug(f"[QQ] 已同步转发到飞书: {feishu_oid[:16]}")
+        except Exception as e:
+            logger.warning(f"[QQ] 飞书转发失败: {e}")
+
+    def _notify_master_on_asset_msg(self, sender_id: str, user: dict, user_text: str, resp_data: str):
+        """资产发消息时，自动通知主人（应用层兜底，不依赖 AI 自觉调用工具）"""
+        user_role = user.get("role", "")
+        if not user_role or user_role == "主人":
+            return
+
+        master = self.memory.get_user_by_role("主人")
+        if not master:
+            return
+
+        user_name = user.get("name", sender_id[:12])
+        notify = f"📨 资产「{user_name}」发来消息(QQ)\n\n💬 资产说：{user_text[:200]}\n\n🤖 我的回复：{resp_data[:300]}"
+
+        # QQ 通知主人
+        master_qq = master.get("qq_id", "")
+        if master_qq:
+            try:
+                self._send_qq_reply(master_qq, notify, is_group=False)
+                self._debug(f"[QQ] 已自动通知主人(QQ): {user_name}")
+            except Exception as e:
+                logger.warning(f"[QQ] 通知主人(QQ)失败: {e}")
+
+        # 飞书通知主人
+        master_oid = master.get("open_id", "")
+        if self.feishu and master_oid:
+            try:
+                self.feishu.send_text_message(master_oid, "open_id", notify)
+                self._debug(f"[QQ] 已自动通知主人(飞书): {user_name}")
+            except Exception as e:
+                logger.warning(f"[QQ] 通知主人(飞书)失败: {e}")
