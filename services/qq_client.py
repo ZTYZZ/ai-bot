@@ -65,11 +65,9 @@ class QQClient:
             "Authorization": f"QQBot {token}",
             "Content-Type": "application/json",
         }
-        import uuid
         body = {
             "content": content,
             "msg_type": 0,  # 0 = 文本
-            "msg_id": str(uuid.uuid4()),
         }
 
         self._debug(f"[QQ] 发送消息: url={url}, content_len={len(content)}, token_len={len(token)}")
