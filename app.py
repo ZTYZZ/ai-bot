@@ -159,13 +159,13 @@ def qq_webhook():
 
         # 事件处理（op=0）
         if body.get("op") == 0:
+            # 先回复 ACK 确认收件（QQ 平台要求），再异步处理
             threading.Thread(
                 target=_safe_handle_qq,
                 args=(body,),
                 daemon=True,
             ).start()
-
-    return jsonify({"code": 0})
+            return jsonify({"op": 12})
 
 
 def _safe_handle_qq(body: dict):
