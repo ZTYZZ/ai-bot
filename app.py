@@ -49,10 +49,12 @@ memory = Memory()
 
 # 一次性绑定 QQ 身份（部署即执行，失败不阻塞启动）
 try:
-    memory.bind_qq_to_user("ou_90a4f71b6", "B2A76444143B0CC0DAB8C76D407F047C")  # 主人
-    memory.bind_qq_to_user("ou_9f8451598dc4ba5aca244846781c1b9f", "10B173E5FB2EF6D26C93D78CC9A0FB3F")  # 贱狗天天
+    r1 = memory.bind_qq_to_user("ou_90a4f71b6", "B2A76444143B0CC0DAB8C76D407F047C")  # 主人
+    r2 = memory.bind_qq_to_user("ou_9f8451598dc4ba5aca244846781c1b9f", "10B173E5FB2EF6D26C93D78CC9A0FB3F")  # 贱狗天天
+    logger.info(f"QQ绑定: 主人={'OK' if r1 else 'FAIL(用户不存在)'}, 贱狗={'OK' if r2 else 'FAIL(用户不存在)'}")
+    debug(f"QQ绑定: 主人={'OK' if r1 else 'FAIL'}, 贱狗={'OK' if r2 else 'FAIL'}")
 except Exception as e:
-    logger.warning(f"QQ绑定失败(非致命): {e}")
+    logger.warning(f"QQ绑定异常(非致命): {e}")
 
 feishu_client = FeishuClient()
 qq_client = QQClient()
