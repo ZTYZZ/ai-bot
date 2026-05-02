@@ -74,7 +74,8 @@ class QQEventHandler:
             user = self.memory.get_or_create_user_by_qq(sender_id)
 
             # 2. 权限检查
-            has_master = bool(self.memory.get_user_by_role("主人"))
+            master = self.memory.get_user_by_role("主人")
+            has_master = bool(master)
             user_role = user.get("role", "")
 
             # 如果还没有主人，当前用户自动成为主人
@@ -83,13 +84,29 @@ class QQEventHandler:
                 self._debug(f"[QQ] 自动任命 QQ 用户为主人: {sender_id[:12]}")
                 self.qq.send_text_message(
                     receive_id,
-                    "👑 主权确认：你是我的唯一主人（QQ 端）。\n飞书和 QQ 共享同一份数据。\n用 /bind_fs <open_id> 可以绑定你的飞书账号。",
+                    "👑 主权确认：你是我的唯一主人（QQ 端）。\n"
+                    "飞书和 QQ 共享同一份数据、同一份身份。\n"
+                    "如果你也有飞书账号，在飞书上对我说「绑定QQ：" + sender_id + "」来关联两个平台的身份。",
                     is_group=is_group,
                 )
                 return
 
-            # 未注册且已有主人 → 拒绝
+            # 未注册且已有主人
             if not user_role and has_master:
+                # 检查主人是否已绑定 QQ — 如果没绑定，可能是主人本人
+                master_qq = master.get("qq_id", "")
+                if not master_qq:
+                    self.qq.send_text_message(
+                        receive_id,
+                        f"⚠️ 你的 QQ 尚未绑定到主人身份。\n"
+                        f"你的 QQ ID 是：{sender_id}\n\n"
+                        f"请在飞书上对 AI 说：「绑定QQ：{sender_id}」\n"
+                        f"绑定后，飞书和 QQ 将共享同一身份、任务和记录。",
+                        is_group=is_group,
+                    )
+                    self._debug(f"[QQ] 未绑定 QQ 尝试访问: {sender_id[:12]}，主人尚无 QQ 绑定")
+                    return
+
                 self._debug(f"[QQ] 未注册用户被拒绝: {sender_id[:12]}")
                 self.qq.send_text_message(
                     receive_id,

@@ -315,6 +315,15 @@ class Memory:
                 existing.qq_id = None
             # 绑定
             user.qq_id = qq_id
+            # 删除孤立 QQ 占位条目（无 open_id、无 role、同一 qq_id 的其他行）
+            orphan_count = session.query(User).filter(
+                User.qq_id == qq_id,
+                User.open_id == None,
+                User.role == "",
+                User.id != user.id,
+            ).delete(synchronize_session=False)
+            if orphan_count:
+                logger.info(f"清理了 {orphan_count} 个孤立 QQ 用户条目")
             session.commit()
             return True
         finally:
