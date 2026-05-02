@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # 调试日志
 # ============================================================
 _debug_logs = []  # type: list
+_qq_webhook_logs = []  # 最近 QQ webhook 请求记录，用于调试验证问题
 
 
 def debug(msg: str):
@@ -93,6 +94,13 @@ def debug_page():
         lines.append("--- Recent Logs ---")
         for log_entry in _debug_logs[-20:]:
             lines.append(log_entry)
+        lines.append("")
+        lines.append("--- QQ Webhook Requests ---")
+        if _qq_webhook_logs:
+            for ql in _qq_webhook_logs[-10:]:
+                lines.append(ql)
+        else:
+            lines.append("(no QQ webhook requests received yet)")
 
         return app.response_class("\n".join(lines), content_type="text/plain")
     except Exception as e:
@@ -115,8 +123,12 @@ def cron_check():
 @app.route("/qq_webhook", methods=["GET", "POST"])
 def qq_webhook():
     """QQ 机器人 Webhook 接收端点"""
-    # Debug: log all incoming requests for verification troubleshooting
-    logger.info(f"[QQ_WEBHOOK] method={request.method}, headers={dict(request.headers)}, args={dict(request.args)}, body={request.get_data(as_text=True)[:500]}")
+    ts = time.strftime("%H:%M:%S")
+    body_raw = request.get_data(as_text=True)[:500]
+    _qq_webhook_logs.append(f"[{ts}] {request.method} body={body_raw}")
+    if len(_qq_webhook_logs) > 20:
+        _qq_webhook_logs.pop(0)
+    logger.info(f"[QQ_WEBHOOK] method={request.method}, headers={dict(request.headers)}, args={dict(request.args)}, body={body_raw}")
 
     # QQ Webhook 握手验证（op=10 Hello）
     if request.method == "POST":

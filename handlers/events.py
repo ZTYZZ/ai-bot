@@ -48,6 +48,11 @@ class EventHandler:
             receive_id_type = "open_id"
             sender_id = receive_id
         else:
+            # 群聊：仅当被 @ 时才响应
+            mentions = message.get("mentions", [])
+            if not mentions:
+                logger.info("webhook: 群聊未 @ 机器人，跳过")
+                return
             receive_id = chat_id
             receive_id_type = "chat_id"
             sender_id = sender.get("sender_id", {}).get("open_id", "")
@@ -102,6 +107,11 @@ class EventHandler:
             receive_id_type = "open_id"
             sender_id = receive_id
         else:
+            # 群聊：仅当被 @ 时才响应
+            mentions = getattr(message, "mentions", []) or []
+            if not mentions:
+                logger.info("WS: 群聊未 @ 机器人，跳过")
+                return
             receive_id = chat_id
             receive_id_type = "chat_id"
             sender_id = sender.sender_id.open_id if sender.sender_id else ""
