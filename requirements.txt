@@ -5,3 +5,4 @@ lark-oapi>=1.0.0
 python-dotenv>=1.0.0
 sqlalchemy>=2.0
 psycopg2-binary>=2.9
+cryptography>=42.0

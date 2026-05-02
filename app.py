@@ -128,19 +128,21 @@ def qq_webhook():
             logger.info(f"[QQ_WEBHOOK] op=10 plain_token={plain_token}")
             return jsonify({"plain_token": plain_token})
 
-        # op=13: 回调地址验证
+        # op=13: 回调地址验证（Ed25519 签名）
         if body.get("op") == 13:
             d = body.get("d", {})
             plain_token = d.get("plain_token", "")
             event_ts = d.get("event_ts", "")
-            # 计算签名：使用 AppSecret 对 plain_token + event_ts 做 HMAC-SHA256
-            import hmac as _hmac
-            sig = _hmac.new(
-                QQ_APP_SECRET.encode("utf-8") if QQ_APP_SECRET else b"",
-                f"{plain_token}{event_ts}".encode("utf-8"),
-                "sha256",
-            ).hexdigest()
-            logger.info(f"[QQ_WEBHOOK] op=13 plain_token={plain_token[:20]} sig={sig[:20]}")
+            # Ed25519 签名：用 AppSecret 派生 seed → 私钥 → 签名(event_ts + plain_token)
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            secret = QQ_APP_SECRET or ""
+            # Seed = AppSecret 重复到 32 字节后截断
+            seed_str = secret * ((32 // max(len(secret), 1)) + 1)
+            seed = seed_str[:32].encode("utf-8")
+            private_key = Ed25519PrivateKey.from_private_bytes(seed)
+            msg = f"{event_ts}{plain_token}".encode("utf-8")
+            sig = private_key.sign(msg).hex()
+            logger.info(f"[QQ_WEBHOOK] op=13 plain_token={plain_token[:20]} sig_hex={sig[:20]}")
             return jsonify({"plain_token": plain_token, "signature": sig})
 
         # 事件处理（op=0）
