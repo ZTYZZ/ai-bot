@@ -1,9 +1,16 @@
-"""共享上下文 — 避免循环导入。app.py 在启动时注入依赖。"""
+"""共享上下文 — 避免循环导入。app.py 在启动时注入依赖。
+
+⚠️ 使用 threading.local() 避免多线程竞态条件：
+每个线程（每个请求）有自己独立的 sender 上下文，不会互相覆盖。
+"""
+import threading
+
 _memory = None
 _feishu_client = None
-_current_sender_id = None   # 当前对话的发送者 open_id（飞书），用于权限校验
-_current_qq_sender_id = None  # 当前对话的发送者 QQ ID
 _cron_mode = False            # 巡航模式标记，绕过权限检查
+
+# 每个线程独立的请求上下文（解决多线程竞态覆盖问题）
+_local = threading.local()
 
 
 def set_memory(m):
@@ -17,13 +24,14 @@ def set_feishu_client(c):
 
 
 def set_current_sender(sender_id: str, qq_id: str = None):
-    global _current_sender_id, _current_qq_sender_id
-    _current_sender_id = sender_id
-    _current_qq_sender_id = qq_id
+    _local.sender_id = sender_id
+    _local.qq_sender_id = qq_id
 
 
 def get_current_sender() -> str:
-    return _current_sender_id or _current_qq_sender_id or ""
+    sid = getattr(_local, "sender_id", "") or ""
+    qid = getattr(_local, "qq_sender_id", "") or ""
+    return sid or qid
 
 
 def set_cron_mode(enabled: bool):
@@ -52,11 +60,14 @@ def is_master() -> bool:
     if _memory is None:
         return True
 
+    sender_id = getattr(_local, "sender_id", "") or ""
+    qq_sender_id = getattr(_local, "qq_sender_id", "") or ""
+
     user = {}
-    if _current_sender_id:
-        user = _memory.get_user(_current_sender_id)
-    if not user.get("role") and _current_qq_sender_id:
-        user = _memory.get_user_by_qq_id(_current_qq_sender_id)
+    if sender_id:
+        user = _memory.get_user(sender_id)
+    if not user.get("role") and qq_sender_id:
+        user = _memory.get_user_by_qq_id(qq_sender_id)
 
     role = user.get("role", "")
     if role == "主人":
@@ -75,9 +86,11 @@ def require_master() -> str | None:
     if is_master():
         return None
     # 获取当前发送者信息用于日志
-    if _memory and _current_sender_id:
-        user = _memory.get_user(_current_sender_id)
-        name = user.get("name") or "未知"
-        role = user.get("role") or "未注册"
-        return f"⛔ 权限拒绝：「{name}」（{role}）无权执行此操作。只有主人可以。"
+    if _memory:
+        sender_id = getattr(_local, "sender_id", "") or ""
+        if sender_id:
+            user = _memory.get_user(sender_id)
+            name = user.get("name") or "未知"
+            role = user.get("role") or "未注册"
+            return f"⛔ 权限拒绝：「{name}」（{role}）无权执行此操作。只有主人可以。"
     return "⛔ 权限拒绝：无法验证身份。"
