@@ -23,7 +23,7 @@ from tools.context import get_memory, get_feishu_client
 )
 def send_message_to_user(args: dict) -> str:
     target_name = args.get("user_name", "")
-    msg_content = args.get("content", "")
+    msg_content = args.get("content", "") or args.get("message", "")  # message 是常见别名
 
     if not target_name:
         return "错误：请指定接收消息的用户名字。"
