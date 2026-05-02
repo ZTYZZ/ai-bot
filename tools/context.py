@@ -2,6 +2,7 @@
 _memory = None
 _feishu_client = None
 _current_sender_id = None  # 当前对话的发送者 open_id，用于权限校验
+_cron_mode = False          # 巡航模式标记，绕过权限检查
 
 
 def set_memory(m):
@@ -23,6 +24,11 @@ def get_current_sender() -> str:
     return _current_sender_id
 
 
+def set_cron_mode(enabled: bool):
+    global _cron_mode
+    _cron_mode = enabled
+
+
 def get_memory():
     return _memory
 
@@ -32,11 +38,31 @@ def get_feishu_client():
 
 
 def is_master() -> bool:
-    """检查当前发送者是否为主人（工具权限校验用）"""
-    if _memory is None or _current_sender_id is None:
-        return True  # 无上下文时放行（如 cron 巡航）
+    """检查当前发送者是否为主人（工具权限校验用）。
+
+    返回 True 的条件（满足任一即可）：
+    1. 当前发送者的 role == "主人"
+    2. 处于巡航模式（cron agent 调用）
+    3. 系统中还没有注册主人（初始化场景）
+    """
+    # 巡航模式 → 放行
+    if _cron_mode:
+        return True
+    # 数据库未初始化 → 放行（测试/启动场景）
+    if _memory is None:
+        return True
+    # 没有当前发送者 → 拒绝（防守型默认）
+    if _current_sender_id is None:
+        return False
+    # 检查发送者角色
     user = _memory.get_user(_current_sender_id)
-    return user.get("role") == "主人"
+    role = user.get("role", "")
+    # 如果系统中根本没有主人，当前发送者就是事实上的主人
+    if role != "主人":
+        master = _memory.get_user_by_role("主人")
+        if not master:
+            return True  # 没有注册主人，放行以避免锁定
+    return role == "主人"
 
 
 def require_master() -> str | None:

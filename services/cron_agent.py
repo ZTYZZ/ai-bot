@@ -115,6 +115,9 @@ def run_autonomy_check(memory, feishu_client) -> str:
 
     import tools  # noqa
     from tools.registry import get_tool_definitions, execute_tool as reg_exec
+    from tools.context import set_cron_mode
+
+    set_cron_mode(True)
 
     client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
     tdefs = get_tool_definitions()
