@@ -31,10 +31,10 @@ class QQClient:
             self._token = data.get("access_token", "")
             expires_in = data.get("expires_in", 7200)
             self._token_expires_at = time.time() + expires_in
-            logger.info(f"[QQ] Token refreshed, expires in {expires_in}s")
+            logger.info(f"[QQ] Token 获取成功, expires_in={expires_in}s, token_len={len(self._token)}")
             return self._token
         except Exception as e:
-            logger.error(f"[QQ] Token error: {e}")
+            logger.error(f"[QQ] Token 获取失败: {e}")
             return ""
 
     def send_text_message(self, receive_id: str, content: str, is_group: bool = False) -> dict:
@@ -66,10 +66,11 @@ class QQClient:
         try:
             resp = requests.post(url, headers=headers, json=body, timeout=10)
             result = resp.json()
+            logger.info(f"[QQ] Send API response: status={resp.status_code}, body={json.dumps(result, ensure_ascii=False)[:200]}")
             code = resp.status_code
-            msg = result.get("message", "") or result.get("msg", "")
-            return {"code": 0 if code == 200 else -1, "msg": msg,
+            msg = result.get("message", "") or result.get("msg", "") or ""
+            return {"code": 0 if code == 200 else code, "msg": msg,
                     "message_id": result.get("id", "")}
         except Exception as e:
-            logger.error(f"[QQ] Send error: {e}")
+            logger.error(f"[QQ] Send 异常: {e}")
             return {"code": -1, "msg": str(e)}

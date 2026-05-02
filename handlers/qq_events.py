@@ -148,7 +148,8 @@ class QQEventHandler:
         """发送 QQ 回复（自动分片过长消息）"""
         max_len = 2000  # QQ 单条消息限制约 2000 字符
         if len(reply) <= max_len:
-            self.qq.send_text_message(receive_id, reply, is_group=is_group)
+            result = self.qq.send_text_message(receive_id, reply, is_group=is_group)
+            self._debug(f"[QQ] 发送结果: code={result.get('code')}, msg={result.get('msg', '')[:80]}")
         else:
             chunks = []
             current = ""
@@ -161,4 +162,5 @@ class QQEventHandler:
             if current:
                 chunks.append(current)
             for chunk in chunks:
-                self.qq.send_text_message(receive_id, chunk, is_group=is_group)
+                result = self.qq.send_text_message(receive_id, chunk, is_group=is_group)
+                self._debug(f"[QQ] 发送结果: code={result.get('code')}, msg={result.get('msg', '')[:80]}")
