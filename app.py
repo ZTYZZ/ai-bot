@@ -124,13 +124,23 @@ def debug_page():
 def cron_check():
     """定时巡航端点 — 由外部 cron 服务（如 cron-job.org）定期触发"""
     try:
+        threading.Thread(
+            target=_safe_cron,
+            daemon=True,
+        ).start()
+        return jsonify({"code": 0, "msg": "cron started"})
+    except Exception as e:
+        return jsonify({"code": -1, "error": str(e)})
+
+
+def _safe_cron():
+    """在后台线程执行巡检，避免阻塞 Render gunicorn worker（30s 超时）"""
+    try:
         report = run_autonomy_check(memory, feishu_client)
         debug(f"巡航报告: {report[:200]}")
-        return jsonify({"code": 0, "report": report})
     except Exception as e:
         import traceback
         logger.error(f"巡航异常: {traceback.format_exc()}")
-        return jsonify({"code": -1, "error": str(e)})
 
 
 @app.route("/qq_webhook", methods=["GET", "POST"])
