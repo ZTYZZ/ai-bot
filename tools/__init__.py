@@ -276,10 +276,10 @@ def get_asset_report(args: dict) -> str:
 def evaluate_asset(args: dict) -> str:
     from tools.context import get_memory
     memory = get_memory()
-    user_name = args.get("user_name", "")
+    user_name = args.get("user_name", "") or args.get("asset_name", "")
     category = args.get("category", "")
     score_change = args.get("score_change", 0)
-    reason = args.get("reason", "")
+    reason = args.get("reason", "") or args.get("description", "")
 
     valid_categories = {"obedience", "attitude", "diligence", "creativity", "endurance"}
     if category not in valid_categories:
@@ -334,10 +334,14 @@ def evaluate_asset(args: dict) -> str:
 def record_asset_event(args: dict) -> str:
     from tools.context import get_memory
     memory = get_memory()
-    user_name = args.get("user_name", "")
-    event_type = args.get("event_type", "")
-    description = args.get("description", "")
-    score_changes = args.get("score_changes", {})
+    user_name = args.get("user_name", "") or args.get("asset_name", "")
+    event_type = args.get("event_type", "") or args.get("event", "")
+    description = args.get("description", "") or args.get("detail", "")
+    score_changes = args.get("score_changes", {}) or args.get("score_change", {}) or {}
+
+    # 如果 score_changes 传的是数字（如 0），转成空 dict
+    if isinstance(score_changes, (int, float)):
+        score_changes = {}
 
     user = memory.get_user_by_name(user_name)
     if not user:
