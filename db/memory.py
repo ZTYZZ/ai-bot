@@ -143,6 +143,10 @@ class Memory:
                 conn.exec_driver_sql(
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()"
                 )
+                # open_id 必须允许 NULL（QQ 用户没有飞书 open_id）
+                conn.exec_driver_sql(
+                    "ALTER TABLE users ALTER COLUMN open_id DROP NOT NULL"
+                )
             else:
                 # SQLite: ALTER TABLE ADD COLUMN IF NOT EXISTS is not supported
                 cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(users)").fetchall()]

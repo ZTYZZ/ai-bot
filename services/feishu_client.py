@@ -245,6 +245,24 @@ class FeishuClient:
     # 任务
     # ============================================================
 
+    def _get_tenant_token(self) -> str:
+        """获取 tenant_access_token（直接 HTTP，绕过 SDK）"""
+        import requests as _requests
+        try:
+            resp = _requests.post(
+                "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+                json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
+                timeout=10,
+            )
+            data = resp.json()
+            token = data.get("tenant_access_token", "")
+            if not token:
+                logger.error(f"[Task] 获取 tenant token 失败: {data}")
+            return token
+        except Exception as e:
+            logger.error(f"[Task] 获取 tenant token 异常: {e}")
+            return ""
+
     def create_task(
         self,
         summary: str,
@@ -252,30 +270,27 @@ class FeishuClient:
         due_date: str = "",
         member_open_ids: list = None,
     ) -> dict:
-        """创建任务，返回 {code, msg, task_id}。
+        """创建任务（直接 HTTP 调用），返回 {code, msg, task_id}。
 
         due_date: 格式 '2026-04-28' 或 ISO 8601
         """
-        from lark_oapi.api.task.v2 import CreateTaskRequest, InputTask, Due, Member
+        import requests as _requests
 
-        # 清理 description（飞书可能不接受纯换行符或特殊字符）
-        safe_description = ""
+        # 构建请求体 — 只包含非空字段
+        body = {"summary": summary}
+
         if description:
             desc = description.strip()
             if len(desc) > 3000:
-                desc = desc[:3000]  # task v2 正文有长度限制
-            safe_description = desc
-
-        body_builder = InputTask.builder().summary(summary)
-        if safe_description:
-            body_builder = body_builder.description(safe_description)
+                desc = desc[:3000]
+            if desc:
+                body["description"] = desc
 
         if due_date:
             try:
-                # 支持多种日期格式
                 dt = None
-                for fmt in [None, "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y年%m月%d日",
-                           "%Y/%m/%d", "%Y-%m-%dT%H:%M", "%Y-%m-%d"]:
+                for fmt in [None, "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S",
+                           "%Y年%m月%d日", "%Y/%m/%d", "%Y-%m-%dT%H:%M", "%Y-%m-%d"]:
                     try:
                         if fmt:
                             dt = datetime.strptime(due_date.strip(), fmt)
@@ -285,46 +300,56 @@ class FeishuClient:
                     except ValueError:
                         continue
                 if dt:
-                    ts_ms = int(dt.timestamp() * 1000)
-                    due = Due.builder().timestamp(ts_ms).build()
-                    body_builder = body_builder.due(due)
+                    body["due"] = {
+                        "timestamp": str(int(dt.timestamp() * 1000)),
+                    }
             except Exception:
                 pass
 
         if member_open_ids:
-            members = [
-                Member.builder().id(oid).type("user").build()
+            body["members"] = [
+                {"id": oid, "type": "user"}
                 for oid in member_open_ids if oid
             ]
-            if members:
-                body_builder = body_builder.members(members)
 
-        req = (
-            CreateTaskRequest.builder()
-            .user_id_type("open_id")
-            .request_body(body_builder.build())
-            .build()
-        )
+        token = self._get_tenant_token()
+        if not token:
+            return {"code": -1, "msg": "无法获取飞书 tenant_access_token", "task_id": None}
+
+        url = "https://open.feishu.cn/open-apis/task/v2/tasks?user_id_type=open_id"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
 
         try:
-            resp = self._client.task.v2.task.create(req)
-            task_id = resp.data.task.id if resp.data and resp.data.task else None
-            if resp.code != 0:
-                # 提取详细字段校验信息
+            body_json = json.dumps(body, ensure_ascii=False)
+            logger.info(f"[Task] 创建请求: url={url}, body={body_json[:500]}")
+            resp = _requests.post(url, headers=headers, data=body_json.encode("utf-8"), timeout=15)
+            resp_data = resp.json()
+            logger.info(f"[Task] API 返回: status={resp.status_code}, body={json.dumps(resp_data, ensure_ascii=False)[:500]}")
+
+            code = resp_data.get("code", -1)
+            msg = resp_data.get("msg", "")
+            if code == 0:
+                task = resp_data.get("data", {}).get("task", {})
+                task_id = task.get("id", "")
+                return {"code": 0, "msg": "success", "task_id": task_id}
+            else:
+                # 提取字段校验详情
                 violations = ""
-                if resp.data and hasattr(resp.data, 'field_violations'):
-                    vios = getattr(resp.data, 'field_violations', []) or []
-                    if vios:
-                        parts = [f"{v.field}: {v.description}" for v in vios]
-                        violations = " | ".join(parts)
-                error_detail = f"code={resp.code}, msg={resp.msg}" + (f" [{violations}]" if violations else "")
+                field_violations = resp_data.get("data", {}).get("field_violations", []) or []
+                if field_violations:
+                    parts = [f"{v.get('field', '?')}: {v.get('description', '?')}" for v in field_violations]
+                    violations = " | ".join(parts)
+                error_detail = f"code={code}, msg={msg}" + (f" [{violations}]" if violations else "")
                 logger.error(f"[Task] 创建失败: {error_detail}")
-                return {"code": resp.code, "msg": error_detail, "task_id": None}
-            return {"code": 0, "msg": "success", "task_id": task_id}
+                return {"code": code, "msg": error_detail, "task_id": None}
         except Exception as e:
             import traceback
-            logger.error(f"[Task] 创建异常: {traceback.format_exc()}")
-            return {"code": -1, "msg": str(e), "task_id": None}
+            tb = traceback.format_exc()
+            logger.error(f"[Task] 创建异常: {tb}")
+            return {"code": -1, "msg": f"{type(e).__name__}: {e}", "task_id": None}
 
     def list_tasks(self, page_size: int = 20, page_token: str = "", completed: bool = None) -> dict:
         """列出任务，返回 {code, msg, tasks, has_more, page_token}。"""

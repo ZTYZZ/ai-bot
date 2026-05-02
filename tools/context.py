@@ -7,6 +7,7 @@ import threading
 
 _memory = None
 _feishu_client = None
+_qq_client = None
 _cron_mode = False            # 巡航模式标记，绕过权限检查
 
 # 每个线程独立的请求上下文（解决多线程竞态覆盖问题）
@@ -21,6 +22,11 @@ def set_memory(m):
 def set_feishu_client(c):
     global _feishu_client
     _feishu_client = c
+
+
+def set_qq_client(c):
+    global _qq_client
+    _qq_client = c
 
 
 def set_current_sender(sender_id: str, qq_id: str = None):
@@ -45,6 +51,10 @@ def get_memory():
 
 def get_feishu_client():
     return _feishu_client
+
+
+def get_qq_client():
+    return _qq_client
 
 
 def is_master() -> bool:
