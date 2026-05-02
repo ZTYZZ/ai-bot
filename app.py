@@ -13,9 +13,11 @@ from config import (
 )
 from db.memory import Memory
 from services.feishu_client import FeishuClient
+from services.qq_client import QQClient
 from services.cron_agent import run_autonomy_check
 from handlers.commands import CommandHandler
 from handlers.events import EventHandler
+from handlers.qq_events import QQEventHandler
 import tools.context as tool_ctx
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -42,10 +44,12 @@ def debug(msg: str):
 # ============================================================
 memory = Memory()
 feishu_client = FeishuClient()
+qq_client = QQClient()
 tool_ctx.set_memory(memory)
 tool_ctx.set_feishu_client(feishu_client)
 command_handler = CommandHandler(memory, feishu_client)
 event_handler = EventHandler(memory, feishu_client, command_handler, debug_func=debug)
+qq_event_handler = QQEventHandler(memory, qq_client, debug_func=debug)
 
 
 # ============================================================
@@ -104,6 +108,41 @@ def cron_check():
         import traceback
         logger.error(f"巡航异常: {traceback.format_exc()}")
         return jsonify({"code": -1, "error": str(e)})
+
+
+@app.route("/qq_webhook", methods=["POST"])
+def qq_webhook():
+    """QQ 机器人 Webhook 接收端点"""
+    body = request.get_json()
+
+    # QQ Webhook 握手验证（op=10 Hello）
+    if body.get("op") == 10:
+        plain_token = body.get("d", {}).get("plain_token", "")
+        # 简单验证：返回 plain_token
+        return jsonify({"plain_token": plain_token})
+
+    # QQ Webhook 回调验证（op=13）
+    if body.get("op") == 13:
+        return jsonify({"code": 0})
+
+    # 事件处理（op=0）
+    if body.get("op") == 0:
+        threading.Thread(
+            target=_safe_handle_qq,
+            args=(body,),
+            daemon=True,
+        ).start()
+
+    return jsonify({"code": 0})
+
+
+def _safe_handle_qq(body: dict):
+    """安全处理 QQ webhook 事件"""
+    try:
+        qq_event_handler.process_webhook(body)
+    except Exception as e:
+        import traceback
+        debug(f"QQ webhook 处理崩溃: {traceback.format_exc()}")
 
 
 @app.route("/webhook", methods=["POST"])

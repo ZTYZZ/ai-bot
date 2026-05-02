@@ -44,10 +44,11 @@ class Rule(Base):
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    open_id = Column(String, unique=True, nullable=False)
+    open_id = Column(String, unique=True, nullable=True)   # 飞书 open_id（可为空，允许仅 QQ 绑定）
     name = Column(String, default="")
     role = Column(String, default="")
     notes = Column(Text, default="")
+    qq_id = Column(String, unique=True, nullable=True)     # QQ 机器人用户 ID
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -193,29 +194,24 @@ class Memory:
         try:
             user = session.query(User).filter(User.open_id == open_id).first()
             if user:
-                return {
-                    "open_id": user.open_id,
-                    "name": user.name,
-                    "role": user.role,
-                    "notes": user.notes or "",
-                }
+                return self._user_to_dict(user)
             else:
                 new_user = User(open_id=open_id)
                 session.add(new_user)
                 session.commit()
-                return {
-                    "open_id": new_user.open_id,
-                    "name": new_user.name,
-                    "role": new_user.role,
-                    "notes": "",
-                }
+                return self._user_to_dict(new_user)
         finally:
             session.close()
 
-    def set_user(self, open_id: str, name: str = "", role: str = "", notes: str = ""):
+    def set_user(self, open_id: str = "", name: str = "", role: str = "", notes: str = "",
+                 qq_id: str = ""):
         session = self.Session()
         try:
-            user = session.query(User).filter(User.open_id == open_id).first()
+            user = None
+            if open_id:
+                user = session.query(User).filter(User.open_id == open_id).first()
+            if not user and qq_id:
+                user = session.query(User).filter(User.qq_id == qq_id).first()
             if user:
                 if name:
                     user.name = name
@@ -223,13 +219,18 @@ class Memory:
                     user.role = role
                 if notes:
                     user.notes = notes
+                if qq_id:
+                    user.qq_id = qq_id
+                if open_id:
+                    user.open_id = open_id
                 user.updated_at = datetime.utcnow()
             else:
                 session.add(User(
-                    open_id=open_id,
+                    open_id=open_id or None,
                     name=name,
                     role=role,
                     notes=notes,
+                    qq_id=qq_id or None,
                 ))
             session.commit()
         finally:
@@ -242,14 +243,7 @@ class Memory:
         session = self.Session()
         try:
             user = session.query(User).filter(User.role == role).first()
-            if user:
-                return {
-                    "open_id": user.open_id,
-                    "name": user.name,
-                    "role": user.role,
-                    "notes": user.notes or "",
-                }
-            return {}
+            return self._user_to_dict(user) if user else {}
         finally:
             session.close()
 
@@ -257,14 +251,47 @@ class Memory:
         session = self.Session()
         try:
             user = session.query(User).filter(User.name == name).first()
+            return self._user_to_dict(user) if user else {}
+        finally:
+            session.close()
+
+    def get_user_by_qq_id(self, qq_id: str) -> dict:
+        session = self.Session()
+        try:
+            user = session.query(User).filter(User.qq_id == qq_id).first()
+            return self._user_to_dict(user) if user else {}
+        finally:
+            session.close()
+
+    def get_or_create_user_by_qq(self, qq_id: str) -> dict:
+        session = self.Session()
+        try:
+            user = session.query(User).filter(User.qq_id == qq_id).first()
             if user:
-                return {
-                    "open_id": user.open_id,
-                    "name": user.name,
-                    "role": user.role,
-                    "notes": user.notes or "",
-                }
-            return {}
+                return self._user_to_dict(user)
+            new_user = User(qq_id=qq_id)
+            session.add(new_user)
+            session.commit()
+            return self._user_to_dict(new_user)
+        finally:
+            session.close()
+
+    def bind_qq_to_user(self, open_id: str, qq_id: str) -> bool:
+        """将 QQ ID 绑定到已有的飞书用户。如果 QQ ID 已被绑定则先解绑。"""
+        session = self.Session()
+        try:
+            # 找到目标用户
+            user = session.query(User).filter(User.open_id == open_id).first()
+            if not user:
+                return False
+            # 如果 QQ ID 已被其他人绑定，先解绑
+            existing = session.query(User).filter(User.qq_id == qq_id).first()
+            if existing and existing.id != user.id:
+                existing.qq_id = None
+            # 绑定
+            user.qq_id = qq_id
+            session.commit()
+            return True
         finally:
             session.close()
 
@@ -276,17 +303,19 @@ class Memory:
                 .order_by(User.role, User.name)
                 .all()
             )
-            return [
-                {
-                    "open_id": u.open_id,
-                    "name": u.name,
-                    "role": u.role,
-                    "notes": u.notes or "",
-                }
-                for u in users
-            ]
+            return [self._user_to_dict(u) for u in users]
         finally:
             session.close()
+
+    @staticmethod
+    def _user_to_dict(u) -> dict:
+        return {
+            "open_id": u.open_id or "",
+            "name": u.name or "",
+            "role": u.role or "",
+            "notes": u.notes or "",
+            "qq_id": u.qq_id or "",
+        }
 
     def get_all_users_map(self) -> dict:
         users = self.list_users()

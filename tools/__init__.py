@@ -445,6 +445,43 @@ def set_training_focus(args: dict) -> str:
     memory.update_asset_profile(user["open_id"], training_focus=focus)
     return f"已将「{user_name}」的驯化重点设为：{focus}"
 
+@_register(
+    name="bind_qq_id",
+    description="将 QQ 用户 ID 绑定到已有用户。主人说「绑定QQ：xxxx」「把这个QQ号和XX关联」时使用。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "qq_id": {
+                "type": "string",
+                "description": "QQ 用户的 ID（可通过 QQ 端发送「我的ID」获取）",
+            },
+            "user_name": {
+                "type": "string",
+                "description": "要绑定的已有用户名（飞书端已注册的用户）",
+            },
+        },
+        "required": ["qq_id", "user_name"],
+    },
+)
+def bind_qq_id(args: dict) -> str:
+    from tools.context import get_memory, require_master
+    reject = require_master()
+    if reject:
+        return reject
+    memory = get_memory()
+    qq_id = args.get("qq_id", "")
+    user_name = args.get("user_name", "")
+    if not qq_id or not user_name:
+        return "需要提供 qq_id 和 user_name。"
+    user = memory.get_user_by_name(user_name)
+    if not user:
+        return f"找不到用户「{user_name}」。"
+    ok = memory.bind_qq_to_user(user["open_id"], qq_id)
+    if ok:
+        return f"已将 QQ ID {qq_id} 绑定到「{user_name}」。现在飞书和 QQ 共享同一个身份。"
+    else:
+        return f"绑定失败：用户「{user_name}」可能没有 open_id。"
+
 # from tools import users  # get_user_info / list_tenant_users 需要额外权限，暂不启用
 # from tools import calendar
 # from tools import tasks

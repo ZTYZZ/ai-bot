@@ -1,8 +1,9 @@
 """共享上下文 — 避免循环导入。app.py 在启动时注入依赖。"""
 _memory = None
 _feishu_client = None
-_current_sender_id = None  # 当前对话的发送者 open_id，用于权限校验
-_cron_mode = False          # 巡航模式标记，绕过权限检查
+_current_sender_id = None   # 当前对话的发送者 open_id（飞书），用于权限校验
+_current_qq_sender_id = None  # 当前对话的发送者 QQ ID
+_cron_mode = False            # 巡航模式标记，绕过权限检查
 
 
 def set_memory(m):
@@ -15,13 +16,14 @@ def set_feishu_client(c):
     _feishu_client = c
 
 
-def set_current_sender(sender_id: str):
-    global _current_sender_id
+def set_current_sender(sender_id: str, qq_id: str = None):
+    global _current_sender_id, _current_qq_sender_id
     _current_sender_id = sender_id
+    _current_qq_sender_id = qq_id
 
 
 def get_current_sender() -> str:
-    return _current_sender_id
+    return _current_sender_id or _current_qq_sender_id or ""
 
 
 def set_cron_mode(enabled: bool):
@@ -41,28 +43,31 @@ def is_master() -> bool:
     """检查当前发送者是否为主人（工具权限校验用）。
 
     返回 True 的条件（满足任一即可）：
-    1. 当前发送者的 role == "主人"
+    1. 当前发送者的 role == "主人"（通过 open_id 或 qq_id 查找）
     2. 处于巡航模式（cron agent 调用）
     3. 系统中还没有注册主人（初始化场景）
     """
-    # 巡航模式 → 放行
     if _cron_mode:
         return True
-    # 数据库未初始化 → 放行（测试/启动场景）
     if _memory is None:
         return True
-    # 没有当前发送者 → 拒绝（防守型默认）
-    if _current_sender_id is None:
-        return False
-    # 检查发送者角色
-    user = _memory.get_user(_current_sender_id)
+
+    user = {}
+    if _current_sender_id:
+        user = _memory.get_user(_current_sender_id)
+    if not user.get("role") and _current_qq_sender_id:
+        user = _memory.get_user_by_qq_id(_current_qq_sender_id)
+
     role = user.get("role", "")
+    if role == "主人":
+        return True
+
     # 如果系统中根本没有主人，当前发送者就是事实上的主人
-    if role != "主人":
-        master = _memory.get_user_by_role("主人")
-        if not master:
-            return True  # 没有注册主人，放行以避免锁定
-    return role == "主人"
+    master = _memory.get_user_by_role("主人")
+    if not master:
+        return True
+
+    return False
 
 
 def require_master() -> str | None:
