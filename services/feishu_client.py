@@ -352,41 +352,50 @@ class FeishuClient:
             return {"code": -1, "msg": f"{type(e).__name__}: {e}", "task_id": None}
 
     def list_tasks(self, page_size: int = 20, page_token: str = "", completed: bool = None) -> dict:
-        """列出任务，返回 {code, msg, tasks, has_more, page_token}。"""
-        from lark_oapi.api.task.v2 import ListTaskRequest
+        """列出任务（直接 HTTP 调用，与 create_task 保持一致），返回 {code, msg, tasks, has_more, page_token}。"""
+        import requests as _requests
+        from urllib.parse import urlencode
 
-        req_builder = (
-            ListTaskRequest.builder()
-            .user_id_type("open_id")
-            .page_size(page_size)
-        )
+        token = self._get_tenant_token()
+        if not token:
+            return {"code": -1, "msg": "无法获取飞书 tenant_access_token", "tasks": [], "has_more": False, "page_token": ""}
+
+        params = {"user_id_type": "open_id", "page_size": page_size}
         if page_token:
-            req_builder = req_builder.page_token(page_token)
+            params["page_token"] = page_token
         if completed is not None:
-            req_builder = req_builder.completed(completed)
+            params["completed"] = str(completed).lower()
+
+        url = f"https://open.feishu.cn/open-apis/task/v2/tasks?{urlencode(params)}"
+        headers = {"Authorization": f"Bearer {token}"}
 
         try:
-            resp = self._client.task.v2.task.list(req_builder.build())
-            if resp.code == 0 and resp.data:
-                items = resp.data.items or []
+            resp = _requests.get(url, headers=headers, timeout=15)
+            resp_data = resp.json()
+            logger.info(f"[Task] List 返回: status={resp.status_code}, code={resp_data.get('code')}")
+
+            code = resp_data.get("code", -1)
+            if code == 0:
+                data = resp_data.get("data", {})
+                items = data.get("items", []) or []
                 return {
                     "code": 0,
                     "msg": "success",
                     "tasks": [
                         {
-                            "id": t.id,
-                            "summary": t.summary,
-                            "description": getattr(t, "description", ""),
-                            "completed": getattr(t, "completed", False),
-                            "created_at": getattr(t, "created_at", ""),
-                            "due": getattr(t, "due", None),
+                            "id": t.get("id", ""),
+                            "summary": t.get("summary", ""),
+                            "description": t.get("description", ""),
+                            "completed": t.get("completed", False),
+                            "created_at": t.get("created_at", ""),
+                            "due": t.get("due", None),
                         }
                         for t in items
                     ],
-                    "has_more": resp.data.has_more,
-                    "page_token": resp.data.page_token or "",
+                    "has_more": data.get("has_more", False),
+                    "page_token": data.get("page_token", ""),
                 }
-            return {"code": resp.code, "msg": resp.msg, "tasks": [], "has_more": False, "page_token": ""}
+            return {"code": code, "msg": resp_data.get("msg", ""), "tasks": [], "has_more": False, "page_token": ""}
         except Exception as e:
             logger.error(f"查询任务失败: {e}")
             return {"code": -1, "msg": str(e), "tasks": [], "has_more": False, "page_token": ""}
